@@ -1,0 +1,21 @@
+{
+  "name": "t3rminal-contracts",
+  "version": "1.0.0",
+  "description": "T3RMINAL Smart Contracts for Polkadot Asset Hub",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:coverage": "hardhat coverage",
+    "node": "hardhat node",
+    "clean": "hardhat clean"
+  },
+  "keywords": ["polkadot", "smart-contracts", "pos", "payments"],
+  "author": "T3RMINAL Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@parity/hardhat-polkadot": "^0.3.0",
+    "@parity/resolc": "^1.1.0",
+    "hardhat": "^2.28.4"
+  }
+}

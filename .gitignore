@@ -1,0 +1,70 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# testing
+/coverage
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+build/
+dist/
+*.car
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (never commit secrets; .env.example is the tracked template)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# contracts (Hardhat)
+contracts/node_modules/
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+contracts/coverage/
+contracts/coverage.json
+
+# Per-operator deploy records (wallet + contract addresses). The static build
+# reads .env.local, not these.
+deployments/
+
+# PAPI descriptors are regenerated from `.papi/metadata/*.scale` at build time.
+# The .scale metadata and the descriptor package stub are committed so builds
+# reproduce without live RPC access.
+.papi/descriptors/*
+!.papi/descriptors/package.json
+!.papi/descriptors/.gitignore
+
+# Sentry
+.env.sentry-build-plugin
+
+# AI session / local state (keep intentional team config like CLAUDE.md,
+# .claude/commands, .claude/skills — ignore only per-developer state)
+.claude/settings.local.json
+.claude/sessions/
+.claude/cache/

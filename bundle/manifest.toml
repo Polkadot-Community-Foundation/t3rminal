@@ -1,0 +1,23 @@
+# dot.li product manifest for the standalone T3RMINAL terminal.
+#
+# `id` MUST equal the deploy domain or bulletin-deploy's publishManifest step
+# aborts. The default below is the example target; scripts/deploy.ts rewrites
+# this line to whatever domain the operator picks before copying the manifest
+# into the build output.
+#
+# Extensions: host.data for the local report cache, host.api for Bulletin writes
+# via the host preimageManager, host.media for the QR camera. Signing uses the
+# app's own wallet path, not the host browser bridge, so host.browser.bridge is
+# intentionally absent.
+[app]
+id = "t3rminal-app-88.dot"
+name = "T3RMINAL"
+version = "0.1.0"
+app_type = "spa"
+
+[webapp]
+entry = "index.html"
+sandbox = "strict"
+
+[extensions]
+use_extensions = ["host.data", "host.api", "host.media"]

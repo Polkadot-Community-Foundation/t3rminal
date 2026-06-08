@@ -1,0 +1,62 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq git curl
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
+
+      - name: Generate PAPI descriptors
+        run: npm run papi:generate
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+        env:
+          CI: true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload test traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 7
