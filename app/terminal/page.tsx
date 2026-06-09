@@ -9,7 +9,7 @@ import { BottomNav } from "@/components/bottom-nav";
 import { useAccount } from "@/lib/web3";
 import { QRCodeSVG } from "qrcode.react";
 import { useQRGenerator } from "@/lib/hooks/use-qr-generator";
-import { usePaymentListener, type PaymentDetected } from "@/lib/hooks/use-payment-listener";
+import { usePaymentListener, type PaymentDetected, type PartialPayment } from "@/lib/hooks/use-payment-listener";
 import { useReceiptGenerator } from "@/lib/hooks/use-receipt-generator";
 import { useCalculator, type CalculatorOperator } from "@/lib/hooks/use-calculator";
 import { PUSD_ASSET_ID, PUSD_DECIMALS } from "@/lib/utils/asset-ids";
@@ -69,6 +69,9 @@ function TerminalPageInner() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [saleId, setSaleId] = useState<string | null>(null);
   const [paymentReceived, setPaymentReceived] = useState<PaymentDetected | null>(null);
+  // Partial credit progress for multi-group offboards: set while the running
+  // total is below the requested amount, cleared once the sale completes.
+  const [partial, setPartial] = useState<PartialPayment | null>(null);
   const [svgReceipt, setSvgReceipt] = useState<string | null>(null);
   const [finalAmount, setFinalAmount] = useState<string>("");
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -141,8 +144,20 @@ function TerminalPageInner() {
 
   const listenerOptions = listenerActive && receivingAddress ? {
     recipient: receivingAddress,
+    // Reconcile incoming credits against the requested total. A multi-group
+    // wallet offboard lands as several credits; the listener accumulates them
+    // and only fires success once the sum reaches this amount.
+    requestedPlanck: finalAmount
+      ? amountToPlanck(finalAmount, PUSD_DECIMALS).toString()
+      : undefined,
+    onPartialPayment: (p: PartialPayment) => {
+      console.log("[Terminal] Partial payment:", p.received, "/", p.requested);
+      setPartial(p);
+      journeyTracker.milestone("terminal-payment", "payment-partial");
+    },
     onPaymentDetected: async (payment: PaymentDetected) => {
       console.log("[Terminal] Payment detected!", payment);
+      setPartial(null);
       journeyTracker.milestone("terminal-payment", "payment-detected");
       journeyTracker.addAttributes("terminal-payment", {
         "journey.sale_id": payment.saleId,
@@ -396,6 +411,7 @@ function TerminalPageInner() {
     calculator.clear();
     setFinalAmount("");
     setPaymentReceived(null);
+    setPartial(null);
     setSaleId(null);
     setSvgReceipt(null);
     setShowCancelModal(false);
@@ -646,11 +662,30 @@ function TerminalPageInner() {
             </div>
 
             <h2 data-testid="waiting-text" className="text-white text-2xl font-medium mb-6">
-              {paymentIncoming ? "Payment incoming…" : "Waiting for payment..."}
+              {paymentIncoming
+                ? "Payment incoming…"
+                : partial
+                  ? "Receiving payment…"
+                  : "Waiting for payment..."}
             </h2>
 
             <p className="text-neutral-400 text-sm mb-2">Receiving Amount</p>
             <p data-testid="qr-amount" className="text-white text-5xl font-light mb-8">{finalAmount} {symbol}</p>
+
+            {/* Multi-group offboard in progress: part of the total has landed,
+                we're still waiting for the remaining recycler groups. */}
+            {partial && (
+              <div
+                data-testid="partial-progress"
+                className="-mt-4 mb-8 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="text-amber-300 text-sm font-medium">
+                  Received {formatAmountFromPlanck(partial.received, PUSD_DECIMALS)} of{" "}
+                  {formatAmountFromPlanck(partial.requested, PUSD_DECIMALS)} {symbol} — waiting…
+                </span>
+              </div>
+            )}
 
             {/* QR Code — replaced by a spinner once the payment starts arriving. */}
             <div

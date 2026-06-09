@@ -19,9 +19,38 @@ export interface PaymentDetected {
   chain: "paseo-individuality"
 }
 
+export interface PartialPayment {
+  /** Running total credited to the recipient so far, in plancks. */
+  received: string
+  /** The requested sale total, in plancks. */
+  requested: string
+  blockHash: string
+  blockNumber: number
+}
+
 interface ListenerOptions {
   recipient: string
+  /**
+   * The requested sale total in plancks (from the QR's `amountPlanck`).
+   *
+   * A wallet offboard can span multiple recycler groups, so the merchant
+   * credit arrives as several events — possibly across different blocks.
+   * When this is set, the listener ACCUMULATES matching credits and only
+   * invokes `onPaymentDetected` once the running total reaches it, reporting
+   * the summed amount (not the first partial event).
+   *
+   * When omitted or "0", the listener keeps the legacy behaviour and fires on
+   * the first matching credit — used by callers that don't have a requested
+   * total to reconcile against.
+   */
+  requestedPlanck?: string
   onPaymentDetected: (payment: PaymentDetected) => void
+  /**
+   * Fires on every matching credit that does NOT yet complete the sale, so
+   * the UI can show a "received X of Y / waiting…" state instead of jumping
+   * to success on the first partial credit.
+   */
+  onPartialPayment?: (partial: PartialPayment) => void
   /**
    * Fires when a previously-detected payment's block crosses finality.
    * Optional — callers that don't care about confirmation (e.g. one-shot
@@ -66,6 +95,8 @@ export function usePaymentListener(options: ListenerOptions | null) {
 
   const callbackRef = useRef(options?.onPaymentDetected)
   callbackRef.current = options?.onPaymentDetected
+  const partialRef = useRef(options?.onPartialPayment)
+  partialRef.current = options?.onPartialPayment
   const finalizedRef = useRef(options?.onPaymentFinalized)
   finalizedRef.current = options?.onPaymentFinalized
 
@@ -108,20 +139,28 @@ export function usePaymentListener(options: ListenerOptions | null) {
           : 0
         console.log(`[PaymentListener] Ignoring events at or below block #${startBlockNumber} (replay guard)`)
 
-        const fire = (
-          source: string,
+        // The requested sale total. When 0 (no amount to reconcile against),
+        // the listener fires on the first matching credit (legacy behaviour).
+        const requested = options.requestedPlanck ? BigInt(options.requestedPlanck) : 0n
+
+        // Accumulation state for multi-group offboards. `receivedTotal` is the
+        // running sum of credits to the recipient; `creditedKeys` dedups
+        // individual credits by (block, amount) so the same transfer surfaced
+        // by two watchers (e.g. Coinage.Unloaded AND Assets.Transferred) is
+        // counted once. `completed` guards onPaymentDetected to fire exactly
+        // once. (`firedBlocks` still tracks blocks for reorg/finality.)
+        let receivedTotal = 0n
+        const creditedKeys = new Set<string>()
+        let completed = false
+
+        const emitDetected = (
           amount: bigint,
           blockHash: string,
           blockNumber: number,
           fromAddr?: string,
         ) => {
-          if (firedBlocks.has(blockHash)) {
-            console.log(`[PaymentListener] ${source}: dup block ${blockHash.slice(0, 10)} — skip`)
-            return
-          }
-          firedBlocks.add(blockHash)
           const saleId = generateSaleId()
-          console.log(`[PaymentListener] ${source} MATCHED, saleId:`, saleId, "amount:", amount.toString())
+          console.log(`[PaymentListener] COMPLETE saleId:`, saleId, "total:", amount.toString())
           callbackRef.current?.({
             from: fromAddr ?? "anonymous",
             to: normalizedRecipient,
@@ -132,6 +171,55 @@ export function usePaymentListener(options: ListenerOptions | null) {
             saleId,
             chain: "paseo-individuality",
           })
+        }
+
+        const credit = (
+          source: string,
+          amount: bigint,
+          blockHash: string,
+          blockNumber: number,
+          fromAddr?: string,
+        ) => {
+          if (completed) return
+          // Dedup individual credits, not whole blocks: two recycler groups
+          // can land in one block, and the same credit can be seen by more
+          // than one watcher. Keying on (block, amount) counts each distinct
+          // credit once while collapsing cross-watcher duplicates.
+          const key = `${blockHash}:${amount.toString()}`
+          if (creditedKeys.has(key)) {
+            console.log(`[PaymentListener] ${source}: dup credit ${blockHash.slice(0, 10)} (${amount}) — skip`)
+            return
+          }
+          creditedKeys.add(key)
+          firedBlocks.add(blockHash)
+          receivedTotal += amount
+          console.log(
+            `[PaymentListener] ${source} credit +${amount} → ${receivedTotal}/${requested > 0n ? requested : "∞"}`,
+          )
+
+          // Legacy mode (no requested total): fire on the first credit.
+          if (requested <= 0n) {
+            completed = true
+            emitDetected(receivedTotal, blockHash, blockNumber, fromAddr)
+            return
+          }
+
+          // Still short of the requested total — surface the partial state and
+          // keep listening for the remaining recycler groups.
+          if (receivedTotal < requested) {
+            partialRef.current?.({
+              received: receivedTotal.toString(),
+              requested: requested.toString(),
+              blockHash,
+              blockNumber,
+            })
+            return
+          }
+
+          // Reached (or exceeded — overpayment) the requested total. Fire once
+          // with the actual summed amount and the block that crossed it.
+          completed = true
+          emitDetected(receivedTotal, blockHash, blockNumber, fromAddr)
         }
 
         // We watch best-block (not finalized) for ~6s detection latency vs.
@@ -164,7 +252,7 @@ export function usePaymentListener(options: ListenerOptions | null) {
                 const to = extractAddress(event.payload.to)
                 const normalizedTo = normalizeToAssetHubAddress(to)
                 if (normalizedTo !== normalizedRecipient) continue
-                fire(
+                credit(
                   "Coinage.UnloadedAndVouchers",
                   event.payload.external_asset_amount,
                   block.hash,
@@ -205,7 +293,7 @@ export function usePaymentListener(options: ListenerOptions | null) {
                   )
                   continue
                 }
-                fire(
+                credit(
                   "Coinage.Unloaded",
                   event.payload.amount,
                   block.hash,
@@ -242,7 +330,7 @@ export function usePaymentListener(options: ListenerOptions | null) {
               if (!isPusdAssetId(payload.asset_id)) continue
 
               const eventFromStr = extractAddress(payload.from)
-              fire(
+              credit(
                 "Assets.Transferred",
                 payload.amount,
                 block.hash,
@@ -265,7 +353,7 @@ export function usePaymentListener(options: ListenerOptions | null) {
 
     startListening()
     return () => { cleanups.forEach(fn => fn()); setIsListening(false) }
-  }, [options?.recipient])
+  }, [options?.recipient, options?.requestedPlanck])
 
   return { isListening, error }
 }
