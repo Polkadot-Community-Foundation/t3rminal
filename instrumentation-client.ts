@@ -71,7 +71,7 @@ if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN ?? "";
 const tracesSampleRate = Number(
-  process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE ?? "1.0",
+  process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE ?? "0.0",
 );
 
 Sentry.init({
@@ -80,12 +80,14 @@ Sentry.init({
   // without Sentry credentials). Keeps console clean instead of spamming
   // "no DSN" warnings.
   enabled: dsn.length > 0,
+  // No automatic tracing — tracesSampleRate is 0 by default, so even the
+  // SDK's default browser-tracing integration emits nothing (only explicit
+  // `Sentry.startSpan` calls are sampled, when the rate is raised).
   tracesSampleRate,
-  integrations: [
-    Sentry.browserTracingIntegration(),
-    Sentry.replayIntegration(),
-  ],
-  replaysSessionSampleRate: 0.1,
+  // Keep only session replay, and only on errors: no session recording,
+  // 100% replay capture when an error occurs.
+  integrations: [Sentry.replayIntegration()],
+  replaysSessionSampleRate: 0.0,
   replaysOnErrorSampleRate: 1.0,
 });
 
