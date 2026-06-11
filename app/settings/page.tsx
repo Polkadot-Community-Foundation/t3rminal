@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, Store, Shield, Database, Settings as SettingsIcon, Wallet, Coins, CloudDownload } from "lucide-react";
+import { ChevronRight, Store, Shield, Database, Settings as SettingsIcon, Wallet, Coins, CloudDownload, ScrollText } from "lucide-react";
 import { BottomNav } from "@/components/bottom-nav";
 
 interface SettingsRow {
@@ -47,6 +47,12 @@ const SETTINGS_ROWS: SettingsRow[] = [
     icon: CloudDownload,
     title: "Backup & Restore",
     description: "View your backed-up reports for this terminal and restore them locally.",
+  },
+  {
+    href: "/settings/logs",
+    icon: ScrollText,
+    title: "Debug logs",
+    description: "Capture and share this session's console output for debugging.",
   },
 ];
 
