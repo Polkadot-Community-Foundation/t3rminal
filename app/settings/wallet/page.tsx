@@ -36,8 +36,8 @@ export default function WalletSettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black flex flex-col">
-      <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
+    <div className="h-dvh bg-black flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col max-w-md mx-auto w-full">
         <header className="flex items-center px-4 py-4 gap-2">
           <Link href="/settings" className="p-2 text-neutral-400 hover:text-white">
             <ArrowLeft className="w-5 h-5" />
@@ -48,7 +48,7 @@ export default function WalletSettingsPage() {
           </div>
         </header>
 
-        <main className="flex-1 px-6 py-4 space-y-4 overflow-auto">
+        <main className="flex-1 min-h-0 px-6 py-4 space-y-4 overflow-auto">
           {account ? (
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 space-y-4">
               <div className="flex items-center gap-3">

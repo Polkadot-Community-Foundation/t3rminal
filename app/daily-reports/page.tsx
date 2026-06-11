@@ -325,7 +325,7 @@ export default function DailyReportsPage() {
                   <span className="text-green-400 text-sm">Today is finalized</span>
                 </div>
               ) : (
-                <>
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     data-testid="btn-update-report"
@@ -334,9 +334,9 @@ export default function DailyReportsPage() {
                     className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition border border-neutral-700 disabled:opacity-40"
                   >
                     {isFinalizing && finalizingDate === today ? (
-                      <><Loader2 className="w-5 h-5 animate-spin" /><span>{phaseLabel || "Saving…"}</span></>
+                      <><Loader2 className="w-5 h-5 animate-spin" /><span className="truncate">{phaseLabel || "Saving…"}</span></>
                     ) : (
-                      <><Save className="w-5 h-5" /><span>Update report</span></>
+                      <><Save className="w-5 h-5 shrink-0" /><span>Update</span></>
                     )}
                   </button>
                   <button
@@ -346,10 +346,10 @@ export default function DailyReportsPage() {
                     disabled={!merchantIdentity || isFinalizing}
                     className="w-full bg-green-600 hover:bg-green-500 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
                   >
-                    <Lock className="w-5 h-5" />
-                    <span>Finalize day</span>
+                    <Lock className="w-5 h-5 shrink-0" />
+                    <span>Finalize</span>
                   </button>
-                </>
+                </div>
               )}
               <button
                 type="button"

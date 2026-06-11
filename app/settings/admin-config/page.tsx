@@ -25,6 +25,7 @@ import {
 } from "@/lib/config/admin-qr";
 import { deleteSetting } from "@/lib/storage/database";
 import { onStorageChange } from "@/lib/storage/host-storage";
+import { BottomNav } from "@/components/bottom-nav";
 
 export default function AdminConfigPage() {
   const [payload, setPayload] = useState<T3rminalConfigQrPayloadV2 | null>(null);
@@ -72,19 +73,20 @@ export default function AdminConfigPage() {
 
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <header className="flex items-center gap-3 px-5 py-4 border-b border-neutral-800">
-        <Link
-          href="/settings"
-          className="text-neutral-400 hover:text-white"
-          aria-label="Back to Settings"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <h1 className="text-lg font-semibold">Admin Configuration</h1>
-      </header>
+    <div className="h-dvh bg-black text-white flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col max-w-md mx-auto w-full">
+        <header className="flex items-center gap-3 px-5 py-4">
+          <Link
+            href="/settings"
+            className="text-neutral-400 hover:text-white"
+            aria-label="Back to Settings"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <h1 className="text-lg font-semibold">Admin Configuration</h1>
+        </header>
 
-      <main className="max-w-md mx-auto px-5 py-6 space-y-6">
+        <main className="flex-1 min-h-0 overflow-y-auto px-5 py-6 space-y-6">
         {/* Status + scan trigger */}
         <section className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm">
@@ -173,7 +175,9 @@ export default function AdminConfigPage() {
             Clear configuration
           </button>
         ) : null}
-      </main>
+        </main>
+      </div>
+      <BottomNav />
     </div>
   );
 }

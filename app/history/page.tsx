@@ -22,7 +22,7 @@ export default function HistoryPage() {
   // Not connected state
   if (!account) {
     return (
-      <div className="min-h-screen bg-black flex flex-col">
+      <div className="min-h-dvh bg-black flex flex-col">
         <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
           <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
             <div className="text-center space-y-3 w-full">
@@ -77,7 +77,7 @@ export default function HistoryPage() {
   // details page). Skeleton renders while the SVG generates.
   if (selectedSale && showReceipt) {
     return (
-      <div className="min-h-screen bg-black flex flex-col">
+      <div className="min-h-dvh bg-black flex flex-col">
         <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
           {/* Header */}
           <header className="flex items-center justify-between px-4 py-4">
