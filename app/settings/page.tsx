@@ -58,8 +58,8 @@ const SETTINGS_ROWS: SettingsRow[] = [
 
 export default function SettingsPage() {
   return (
-    <div className="min-h-screen bg-black flex flex-col">
-      <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
+    <div className="h-dvh bg-black flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col max-w-md mx-auto w-full">
         {/* Header */}
         <header className="flex items-center justify-center px-4 py-4">
           <div className="flex items-center gap-2">
@@ -68,7 +68,7 @@ export default function SettingsPage() {
           </div>
         </header>
 
-        <main className="flex-1 px-6 py-4 space-y-3 overflow-auto">
+        <main className="flex-1 min-h-0 px-6 py-4 space-y-3 overflow-auto">
           {SETTINGS_ROWS.map((row) => {
             const Icon = row.icon;
             return (

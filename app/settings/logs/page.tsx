@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ScrollText, Share2, Download, RefreshCw, Trash2 } from "lucide-react";
+import { BottomNav } from "@/components/bottom-nav";
 import {
   getCapturedLogs,
   clearCapturedLogs,
@@ -65,8 +66,8 @@ export default function LogsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black flex flex-col">
-      <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
+    <div className="h-dvh bg-black flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col max-w-md mx-auto w-full">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-4">
           <Link href="/settings" className="p-2">
@@ -81,7 +82,7 @@ export default function LogsPage() {
           </button>
         </header>
 
-        <main className="flex-1 px-6 py-4 space-y-6 overflow-auto">
+        <main className="flex-1 min-h-0 px-6 py-4 space-y-6 overflow-auto">
           <p className="text-neutral-400 text-sm">
             Captured console output and uncaught errors from this session. Share
             them to help debug an issue on a device with no dev console.
@@ -139,6 +140,7 @@ export default function LogsPage() {
           </div>
         </main>
       </div>
+      <BottomNav />
     </div>
   );
 }

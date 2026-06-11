@@ -74,7 +74,7 @@ export default function ItemsPage() {
   // ── Render ──────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-black flex flex-col">
+    <div className="min-h-dvh bg-black flex flex-col">
       <div className="flex-1 min-h-0 flex flex-col max-w-md mx-auto w-full pb-56">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-4">

@@ -19,6 +19,7 @@ import {
   manualKeyFingerprint,
 } from "@/lib/crypto/manual-key";
 import { journeyTracker, breadcrumb } from "@/lib/telemetry";
+import { BottomNav } from "@/components/bottom-nav";
 
 export default function EncryptionSettingsPage() {
   const [passphrase, setPassphrase] = useState("");
@@ -62,8 +63,8 @@ export default function EncryptionSettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black flex flex-col">
-      <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
+    <div className="h-dvh bg-black flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col max-w-md mx-auto w-full">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-4">
           <Link href="/settings" className="p-2">
@@ -76,7 +77,7 @@ export default function EncryptionSettingsPage() {
           <div className="w-10" />
         </header>
 
-        <main className="flex-1 px-6 py-4 space-y-6 overflow-auto">
+        <main className="flex-1 min-h-0 px-6 py-4 space-y-6 overflow-auto">
           {/* Explainer */}
           <section className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-sm text-neutral-300 space-y-2">
             <p className="text-white font-medium">How it works</p>
@@ -155,6 +156,7 @@ export default function EncryptionSettingsPage() {
           </section>
         </main>
       </div>
+      <BottomNav />
     </div>
   );
 }

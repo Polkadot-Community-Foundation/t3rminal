@@ -292,7 +292,7 @@ function ScanConfigPageInner() {
   }, [stopScanner]);
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-dvh bg-black text-white">
       <header className="flex items-center gap-3 px-5 py-4 border-b border-neutral-800">
         <Link href="/" className="text-neutral-400 hover:text-white" aria-label="Back to home">
           <ArrowLeft className="w-5 h-5" />

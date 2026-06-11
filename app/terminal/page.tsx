@@ -457,7 +457,7 @@ function TerminalPageInner() {
 
   if (!account) {
     return (
-      <div className="min-h-screen bg-black flex flex-col">
+      <div className="min-h-dvh bg-black flex flex-col">
         <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
           <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
             <div className="text-center space-y-3 w-full">
@@ -474,7 +474,7 @@ function TerminalPageInner() {
   // Generating State - Centered loading with spinning logo
   if (terminalState === "input" && isGenerating) {
     return (
-      <div className="min-h-screen bg-black flex flex-col">
+      <div className="min-h-dvh bg-black flex flex-col">
         <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
           {/* Header */}
           <header className="flex items-center justify-between px-4 py-4">
@@ -517,7 +517,7 @@ function TerminalPageInner() {
   // Input State - Calculator
   if (terminalState === "input") {
     return (
-      <div className="min-h-screen bg-black flex flex-col">
+      <div className="min-h-dvh bg-black flex flex-col">
         <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
           {/* Header */}
           <header className="flex items-center justify-between px-4 py-4">
@@ -630,92 +630,82 @@ function TerminalPageInner() {
       useCoins &&
       (coinage.status === "claiming" || coinage.status === "paid");
     return (
-      <div className="min-h-screen bg-black flex flex-col">
-        <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
-          {/* Header */}
-          <header className="flex items-center justify-between px-4 py-4">
-            <button onClick={() => setShowCancelModal(true)} className="p-2">
-              <X className="w-6 h-6 text-white" />
-            </button>
-            <div className="w-10" />
-            <div className="w-10" />
-          </header>
-
-          {/* Main Content */}
-          <main className="flex-1 flex flex-col items-center justify-center px-6">
-            {/* Polkadot Logo — spins only while a payment is actively coming
-                in (Coins mode), or throughout for Voucher mode. */}
-            <div className="mb-4">
+      <div className="h-dvh bg-black flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col max-w-md mx-auto w-full">
+          {/* No in-app header here: the host already shows a close button, and
+              "Cancel Transaction" below covers the same intent. Content is
+              vertically centered when it fits and scrolls when it doesn't. */}
+          <main className="flex-1 min-h-0 overflow-y-auto px-6 flex flex-col">
+            <div className="my-auto flex flex-col items-center w-full py-4">
+              {/* Polkadot Logo — spins while a payment is actively coming in
+                  (Coins mode), or throughout for Voucher mode. */}
               <Image
                 src="/polkadot_logo.jpg"
                 alt="Loading"
-                width={64}
-                height={64}
-                className={`rounded-full ${!useCoins || paymentIncoming ? "animate-spin" : ""}`}
+                width={56}
+                height={56}
+                className={`rounded-full mb-3 ${!useCoins || paymentIncoming ? "animate-spin" : ""}`}
                 style={{ animationDuration: "3s" }}
               />
-            </div>
 
-            <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-amber-300 text-xs font-medium tracking-wide uppercase">Sale in progress</span>
-            </div>
-
-            <h2 data-testid="waiting-text" className="text-white text-2xl font-medium mb-6">
-              {paymentIncoming
-                ? "Payment incoming…"
-                : partial
-                  ? "Receiving payment…"
-                  : "Waiting for payment..."}
-            </h2>
-
-            <p className="text-neutral-400 text-sm mb-2">Receiving Amount</p>
-            <p data-testid="qr-amount" className="text-white text-5xl font-light mb-8">{finalAmount} {symbol}</p>
-
-            {/* Multi-group offboard in progress: part of the total has landed,
-                we're still waiting for the remaining recycler groups. */}
-            {partial && (
-              <div
-                data-testid="partial-progress"
-                className="-mt-4 mb-8 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40"
-              >
+              <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                <span className="text-amber-300 text-sm font-medium">
-                  Received {formatAmountFromPlanck(partial.received, PUSD_DECIMALS)} of{" "}
-                  {formatAmountFromPlanck(partial.requested, PUSD_DECIMALS)} {symbol} — waiting…
-                </span>
+                <span className="text-amber-300 text-xs font-medium tracking-wide uppercase">Sale in progress</span>
               </div>
-            )}
 
-            {/* QR Code — replaced by a spinner once the payment starts arriving. */}
-            <div
-              data-testid="qr-code"
-              className={`rounded-2xl p-6 mb-6 ${paymentIncoming ? "" : "bg-white"}`}
-            >
-              {paymentIncoming ? (
-                <div className="w-[220px] h-[220px] flex items-center justify-center">
-                  <Loader2 className="w-10 h-10 animate-spin text-neutral-300" />
-                </div>
-              ) : displayQrValue ? (
-                <QRCodeSVG value={displayQrValue} size={220} level="H" />
-              ) : (
-                <div className="w-[220px] h-[220px] flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 animate-spin text-neutral-400" />
+              <h2 data-testid="waiting-text" className="text-white text-xl font-medium mb-2">
+                {paymentIncoming
+                  ? "Payment incoming…"
+                  : partial
+                    ? "Receiving payment…"
+                    : "Waiting for payment..."}
+              </h2>
+
+              <p className="text-neutral-400 text-sm">Receiving Amount</p>
+              <p data-testid="qr-amount" className="text-white text-4xl font-light mb-4">{finalAmount} {symbol}</p>
+
+              {/* Multi-group offboard in progress: part of the total has landed,
+                  we're still waiting for the remaining recycler groups. */}
+              {partial && (
+                <div
+                  data-testid="partial-progress"
+                  className="-mt-2 mb-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40"
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  <span className="text-amber-300 text-sm font-medium">
+                    Received {formatAmountFromPlanck(partial.received, PUSD_DECIMALS)} of{" "}
+                    {formatAmountFromPlanck(partial.requested, PUSD_DECIMALS)} {symbol} — waiting…
+                  </span>
                 </div>
               )}
-            </div>
 
-            {useCoins && coinage.status === "error" && coinage.error && (
-              <p className="text-neutral-500 text-xs mb-4 text-center max-w-xs">
-                {coinage.error}
-              </p>
-            )}
+              {/* QR Code — replaced by a spinner once the payment starts arriving. */}
+              <div
+                data-testid="qr-code"
+                className={`rounded-2xl p-5 mb-4 ${paymentIncoming ? "" : "bg-white"}`}
+              >
+                {paymentIncoming ? (
+                  <div className="w-[220px] h-[220px] flex items-center justify-center">
+                    <Loader2 className="w-10 h-10 animate-spin text-neutral-300" />
+                  </div>
+                ) : displayQrValue ? (
+                  <QRCodeSVG value={displayQrValue} size={220} level="H" />
+                ) : (
+                  <div className="w-[220px] h-[220px] flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-neutral-400" />
+                  </div>
+                )}
+              </div>
 
-            {/* Action Buttons */}
-            <div className="w-full space-y-3">
+              {useCoins && coinage.status === "error" && coinage.error && (
+                <p className="text-neutral-500 text-xs mb-4 text-center max-w-xs">
+                  {coinage.error}
+                </p>
+              )}
+
               <button
                 onClick={() => setShowCancelModal(true)}
-                className="w-full bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-4 rounded-xl transition"
+                className="w-full bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-3 rounded-xl transition"
               >
                 Cancel Transaction
               </button>
@@ -758,7 +748,7 @@ function TerminalPageInner() {
   // Payment Completed State
   if (terminalState === "completed") {
     return (
-      <div className="min-h-screen bg-black flex flex-col">
+      <div className="min-h-dvh bg-black flex flex-col">
         <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
           {/* Header */}
           <header className="flex items-center justify-between px-4 py-4">
@@ -858,7 +848,7 @@ function TerminalPageInner() {
         })
       : "";
     return (
-      <div className="min-h-screen bg-neutral-100 flex flex-col">
+      <div className="min-h-dvh bg-neutral-100 flex flex-col">
         <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
           {/* Header */}
           <header className="flex items-center justify-between px-4 py-4 bg-neutral-100">
@@ -872,13 +862,13 @@ function TerminalPageInner() {
           {/* Main Content */}
           <main className="flex-1 flex flex-col items-center justify-center px-6">
             <p className="text-neutral-500 text-sm mb-2">Payment Record #{saleId?.slice(-4)}</p>
-            <h2 className="text-black text-xl font-medium mb-8">Scan QR to Receive Record</h2>
+            <h2 className="text-black text-xl font-medium mb-8">Scan QR in W3SPay to Receive Record</h2>
 
             {/* QR Code */}
-            <div className="bg-white rounded-2xl p-8 shadow-lg mb-8">
+            <div className="bg-white rounded-2xl p-6 shadow-lg mb-8">
               <QRCodeSVG
                 value={shareQrValue}
-                size={200}
+                size={280}
                 level="L"
               />
             </div>
@@ -898,7 +888,7 @@ function TerminalPageInner() {
   // Receipt Review State
   if (terminalState === "receipt") {
     return (
-      <div className="min-h-screen bg-black flex flex-col">
+      <div className="min-h-dvh bg-black flex flex-col">
         <div className="flex-1 flex flex-col max-w-md mx-auto w-full">
           {/* Header */}
           <header className="flex items-center justify-between px-4 py-4">
