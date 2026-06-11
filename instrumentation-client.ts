@@ -9,6 +9,13 @@
  */
 
 import * as Sentry from "@sentry/nextjs";
+import { installLogCapture } from "@/lib/debug/log-capture";
+
+// Mirror every console.* call (and uncaught errors) into an in-memory buffer
+// so Settings → Debug logs can export them — phones in the host webview have
+// no dev console. Installed first so it sits beneath every other wrapper and
+// catches everything, including Sentry's own logging.
+installLogCapture();
 
 // ── Suppress Next.js dev-only `missingSlots` Set warning ────────────
 //
