@@ -14,7 +14,7 @@
  * filesystem-path regex — a sandboxed browser doesn't emit those.
  */
 
-import type { ErrorEvent, TransactionEvent } from "@sentry/nextjs";
+import type { ErrorEvent, TransactionEvent } from "@sentry/core";
 
 const REDACTED = "[redacted]";
 const SENSITIVE_KEY_RE = /password|secret|mnemonic|privatekey|seed/i;
