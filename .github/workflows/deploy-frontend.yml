@@ -63,7 +63,8 @@ jobs:
           # Disable automatic tracing in production — baked explicitly so the
           # bundle never falls back to a higher rate regardless of code default.
           # Raise (e.g. 0.1) only if you want a sample of transactions traced.
-          NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: '0.0'
+          NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: '1.0'
+          NEXT_PUBLIC_SENTRY_ENVIRONMENT: production
           # Contract wiring. CI has no .env.local (gitignored) and never runs
           # the contract deploy, so without these the build bakes the
           # lib/contracts/config.ts defaults. They're public values, so they
