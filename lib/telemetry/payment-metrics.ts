@@ -53,6 +53,7 @@ export function recordPaymentOutcome(params: PaymentOutcomeParams): void {
 
   const attributes: Record<string, string | number | boolean> = {
     "payment.outcome": params.outcome,
+    "payment.sad": success ? "false" : "true",
     "payment.method": params.method,
     "payment.source": params.source ?? "direct",
     "payment.terminal_id": params.terminalId ?? "unbound",
@@ -108,6 +109,7 @@ export function recordFinalizationLatency(
   const attributes: Record<string, string | number | boolean> = {
     "finalization.sale_id": params.saleId,
     "finalization.finalized": params.finalized,
+    "finalization.sad": params.finalized ? "false" : "true",
     "finalization.latency_ms": latencyMs,
   };
 
