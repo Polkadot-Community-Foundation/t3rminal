@@ -36,11 +36,25 @@ t3rminal already ships a full `lib/telemetry/` module, committed at init:
 
 **This is good instrumentation that is currently dark.** Two reasons:
 
-1. **No DSN.** `.env.example` ships `NEXT_PUBLIC_SENTRY_DSN=` empty, and `enabled` is false
-   without it. Nothing is sent.
-2. **`tracesSampleRate` defaults to `0.0`** at all four init sites. With rate 0, Sentry
-   makes a negative sampling decision at root-span creation, so **every** journey/payment
-   span is dropped before it leaves the browser. The timing code runs but emits nothing.
+1. **No DSN reaches the build.** `.env.example` ships `NEXT_PUBLIC_SENTRY_DSN=` empty, and
+   `enabled` is false without it. The prod build (`deploy-frontend.yml:62`) reads the DSN from
+   a GitHub repo secret `NEXT_PUBLIC_SENTRY_DSN` that is currently unset → empty → disabled.
+   (The Sentry **project already exists** — see below — but has received zero events.)
+2. **`tracesSampleRate` is `0.0`** — both as the init-site default *and* hardcoded in
+   `deploy-frontend.yml:66`. With rate 0, Sentry makes a negative sampling decision at
+   root-span creation, so **every** journey/payment span is dropped before it leaves the
+   browser. The timing code runs but emits nothing. Raising it requires editing the workflow,
+   not just env.
+
+### Sentry project (confirmed 2026-06-12)
+
+The project exists already (created 2026-06-11, likely by todor):
+
+- Org `paritytech` · Team `paritytech` · Project `t3rminal` · Platform `javascript-nextjs`
+- Region: EU (`de.sentry.io`)
+- `firstEvent: null` — nothing has ever been ingested
+- Public client DSN: `https://d525dec6a98895f678ca4f0e726a9bd7@o4511059872841728.ingest.de.sentry.io/4511547331903568`
+  (a browser DSN is public by design — safe to ship in the bundle / commit)
 
 Errors (`captureException`) are *not* gated by `tracesSampleRate` — they flow as soon as a
 DSN exists. Spans need both a DSN and a non-zero rate.
@@ -75,17 +89,25 @@ platform-agnostic patterns and drop the CLI-only ones.
 
 ## Design
 
-### 1. Setup / prerequisites (goal 0) — human + config
+### 1. Setup / prerequisites (goal 0)
 
-- **Ionut (org admin):** create a Sentry **Next.js / browser** project in the `paritytech`
-  org; provide the DSN.
-- Wire deploy env:
-  - `NEXT_PUBLIC_SENTRY_DSN=<dsn>`
-  - `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=1.0` (prod/preview — low-volume terminal, trace
-    every payment; local stays `0.0`)
-  - `NEXT_PUBLIC_SENTRY_ENVIRONMENT=production|preview` (defaults to `local` when unset)
+The project + DSN already exist (see above). Remaining wiring:
+
+- **Human-only action (Ionut/admin):** set the GitHub repo secret
+  `NEXT_PUBLIC_SENTRY_DSN` = the public DSN above. (Repo secrets can't be set from this
+  session.) This is the switch that turns production ingestion on, so it should be flipped
+  **after** the PII scrub lands — see ordering note below.
+- **Code change (this branch):** in `deploy-frontend.yml` change
+  `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` from `'0.0'` to `'1.0'`, and add
+  `NEXT_PUBLIC_SENTRY_ENVIRONMENT: production`.
+- Local smoke testing uses `.env.local` (gitignored) with the DSN + sampling raised.
 - Source-map upload (`SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN`) stays optional,
   as today.
+
+**Safety ordering — scrub before ingestion.** Because §4 identifies real secrets/PII that
+could otherwise reach the wire, the PII scrub (§4) + hardening must merge **before** the DSN
+secret is set in prod. Sequence: implement on branch → merge → then set the repo secret. Local
+`.env.local` testing is fine throughout (no real merchant data).
 
 ### 2. Init hardening (all four Sentry init sites)
 
@@ -224,11 +246,13 @@ Manual smoke test (with a real DSN in `.env.local`, sampling raised):
 | `instrumentation-client.ts` | `environment`, `release`, `beforeSend(Transaction)` |
 | `sentry.server.config.ts` / `sentry.edge.config.ts` | same init hardening |
 | `e2e/fixtures.ts` | set the `e2e-*` tag signal at one chokepoint |
+| `.github/workflows/deploy-frontend.yml` | sampling `'0.0'`→`'1.0'`; add `NEXT_PUBLIC_SENTRY_ENVIRONMENT` |
 | `.env.example` | document `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `_RELEASE`, sampling guidance |
 | `lib/telemetry/*.test.ts` | new vitest tests (scrub, sad, classification, warning) |
 
 ## Open items for the human
 
-- Create the Sentry project + DSN (Ionut / org admin).
-- Confirm/lay down the deploy env values (DSN, sampling=1.0, environment).
-- Matrix delivery path is owned by the team; the Sentry alert rule is created post-DSN.
+- ~~Create the Sentry project + DSN~~ — **done** (exists in `paritytech`, DSN above).
+- Set the GitHub repo secret `NEXT_PUBLIC_SENTRY_DSN` — **after** the scrub lands (ordering
+  note in §1).
+- Matrix delivery path is owned by the team; the Sentry alert rule is created post-ingestion.
