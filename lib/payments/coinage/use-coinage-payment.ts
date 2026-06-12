@@ -28,6 +28,8 @@ import { detectHostEnvironment } from "@/lib/host";
 import { generateEphemeralKeypair, generatePaymentId } from "./keys";
 import { deriveTopic } from "./topic";
 import { buildPayW3sDeeplink, normalizeAmount } from "./deeplink";
+import { withSpan, captureWarning } from "@/lib/telemetry";
+import { classifyTopupError } from "./topup-error";
 
 function log(message: string): void {
   // Trace the full coinage detection flow in the host devtools console.
@@ -131,6 +133,7 @@ export function useCoinagePayment(
     let cancelled = false;
     let unsubscribe: (() => void) | null = null;
     let processed = false;
+    let topupAttempts = 0;
 
     void (async () => {
       try {
@@ -164,6 +167,7 @@ export function useCoinagePayment(
             "WARNING: not running inside a Polkadot App host — the host statement " +
               "store is unavailable, so incoming W3S payments cannot be detected here.",
           );
+          captureWarning("no Polkadot host — coins undetectable", { paymentId: id });
         }
 
         // The wrapper's subscription can be interrupted by the host (e.g. a
@@ -215,27 +219,33 @@ export function useCoinagePayment(
               );
 
               void (async () => {
+                topupAttempts += 1;
+                if (topupAttempts > 1) {
+                  captureWarning("topUp retry — possible duplicate", {
+                    paymentId: id, attempt: topupAttempts,
+                  });
+                }
                 try {
-                  // The host ignores the amount on a Coins top-up — the coins
-                  // carry their own value — but the signature needs a bigint.
-                  await manager.topUp(0n, { type: "coins", keys: claimed.coins });
+                  await withSpan(
+                    "coinage topUp",
+                    "payment.coinage.topup",
+                    () => manager.topUp(0n, { type: "coins", keys: claimed.coins }),
+                    { "topup.attempt": String(topupAttempts) },
+                  );
                   if (cancelled) return;
                   log("  claim ok — paid");
                   setStatus("paid");
                   onPaidRef.current?.({
-                    paymentId: id,
-                    amount: claimed.amount,
-                    coinCount: claimed.coins.length,
-                    timestamp: Number(claimed.timestamp),
+                    paymentId: id, amount: claimed.amount,
+                    coinCount: claimed.coins.length, timestamp: Number(claimed.timestamp),
                   });
                 } catch (err) {
                   if (cancelled) return;
-                  // Allow another matching statement to retry the claim.
                   processed = false;
                   const detail = describeError(err);
                   log(`  claim FAILED: ${detail}`);
-                  // Also dump the raw error so its shape is visible in devtools.
                   console.error("[coinage] raw topUp error:", err);
+                  captureWarning(`topUp failed: ${classifyTopupError(err)}`, { paymentId: id, attempt: topupAttempts });
                   setStatus("error");
                   setError(detail);
                 }
@@ -249,6 +259,7 @@ export function useCoinagePayment(
           sub.onInterrupt?.(() => {
             if (cancelled || processed) return;
             log("subscription interrupted by host — re-subscribing");
+            captureWarning("statement subscription interrupted — host drop", { paymentId: id });
             unsubscribe = subscribeOnce();
           });
 
