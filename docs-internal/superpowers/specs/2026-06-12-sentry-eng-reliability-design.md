@@ -215,6 +215,34 @@ The intended alert filter (to be created in Sentry once the project exists, rout
 team's existing Matrix path): `environment:production !tag:e2e-* level:error`. Building the
 Matrix bridge itself is out of scope here.
 
+## Metric mechanics — what aggregates in Sentry (verified 2026-06-13)
+
+Empirically tested against the live `t3rminal` project (raw numeric envelope, no SDK, zero
+prior events, recognized units): **custom numeric span attributes and measurements do NOT
+aggregate in EAP** — `sum()`/`avg()`/`p95()` 400 with *"its a string type field"* and the
+values come back `null`. This holds even for `setMeasurement(..., "millisecond"|"currency"|
+"byte")`. The constraint is the EAP backend, not the SDK or project history. See memory
+`t3rminal-sentry-numeric-eap`.
+
+**Consequence — design every metric around what works natively:**
+
+| Metric | How (native, works) | NOT |
+|---|---|---|
+| Payment success rate | `count_if(payment.outcome, equals, success) / count()` (string attr) | the dead `setMeasurement("payment.success")` |
+| Finalization latency p50/p95 | `p95(span.duration)` on `span.op:payment.finalization` (span is back-dated to the real latency) | `measurements.finalization.latency` (string/null) |
+| `topUp()` latency | `p95(span.duration)` on the new `payment.coinage.topup` span | a numeric attr |
+| Total e2e payment duration | `p95(span.duration)` on `journey.terminal-payment` | — |
+| Transaction **volume** | `count()` of successful `payment.outcome` spans | — |
+| Total **revenue** (sum of amounts) | **local aggregation** — pull events via the events API and sum in a script (triangle-deploy `tools/lib/sentry-events.mjs` pattern) | any custom numeric attr/measurement |
+
+**Decisions this locks in:**
+- `payment.amount` stays a **string** attribute (display/filter/drill-down). No
+  `payment.amount_value` measurement — withdrawn (verified it wouldn't aggregate).
+- All SAD/outcome/status flags stay **strings** (`"true"`/`"false"`/`"error"`) — `count_if`
+  is the aggregation path, which is exactly why §5 initialises them to a default value.
+- The existing `setMeasurement(...)` calls in `payment-metrics.ts` are harmless but **must not
+  be relied on**; primary metrics use `span.duration` + `count_if`. (Cleanup/removal optional.)
+
 ## Testing
 
 Vitest unit tests (the app uses `vitest run`):
