@@ -850,6 +850,229 @@ Expected: rows for `journey.*` / `payment.outcome` spans with `journey.sad`/`pay
 
 ---
 
+## Phase 2 — Monitored workflows (team reqs)
+
+Depends on Phase 1 (Tasks 1–9). These instrument the two primary workflows + host anomalies
+using **only** native metric patterns (`span.duration`, `count`/`count_if`) — no numeric attrs.
+Errors here are classified via `isExpectedError` (Task 2) so only real bugs alert.
+
+### Task 10: Reorg-invalidation capture (`lib/tx/submit.ts`)
+
+**Files:** Modify `lib/tx/submit.ts`
+
+- [ ] **Step 1:** Add the telemetry import at the top (after the `polkadot-api` import):
+
+```ts
+import { captureError } from "@/lib/telemetry"
+```
+
+- [ ] **Step 2:** At the reorg branch (`:308-312`, the `if (settled)` inside the `finalized`
+  `!event.ok` case), replace the bare `console.warn(...)` with a capture that creates a Sentry
+  issue (this is a real data-integrity event — a tx the user saw succeed was reverted):
+
+```ts
+                if (settled) {
+                  console.warn(
+                    "[tx] Transaction failed after best-block (reorg). Consumer received a stale success result.",
+                    { formatted, block: event.block }
+                  )
+                  captureError(
+                    new Error(`reorg invalidated settled tx: ${formatted}`),
+                    { component: "tx", phase: "reorg-after-best-block" },
+                    { block: event.block }
+                  )
+                } else {
+```
+
+- [ ] **Step 3:** Verify: `npx tsc --noEmit` passes. (submit.ts runs in the browser; the
+  telemetry barrel is `"use client"` — fine.)
+
+- [ ] **Step 4:** Commit:
+
+```bash
+git add lib/tx/submit.ts
+git commit -m "feat(telemetry): capture reorg that invalidates a settled tx"
+```
+
+### Task 11: topUp() span + error-kind classifier (`lib/payments/coinage`)
+
+**Files:** Create `lib/payments/coinage/topup-error.ts`; Modify `use-coinage-payment.ts`; Test `tests/telemetry-topup-error.test.ts`
+
+- [ ] **Step 1: Write the failing test** for the error classifier — create `tests/telemetry-topup-error.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { classifyTopupError } from "@/lib/payments/coinage/topup-error";
+
+describe("classifyTopupError", () => {
+  it("maps known host shapes to stable kinds", () => {
+    expect(classifyTopupError(new Error("request timed out"))).toBe("timeout");
+    expect(classifyTopupError({ tag: "Declined", value: { reason: "insufficient" } })).toBe("declined");
+    expect(classifyTopupError(new Error("host bridge unavailable"))).toBe("host");
+    expect(classifyTopupError(new Error("weird"))).toBe("unknown");
+  });
+});
+```
+
+- [ ] **Step 2:** Run `npx vitest run tests/telemetry-topup-error.test.ts` → FAIL (module missing).
+
+- [ ] **Step 3:** Implement `lib/payments/coinage/topup-error.ts`:
+
+```ts
+/** Stable, queryable kind for a topUp() failure (string attr → count_if). */
+export type TopupErrorKind = "timeout" | "declined" | "host" | "unknown";
+
+export function classifyTopupError(err: unknown): TopupErrorKind {
+  const text =
+    err instanceof Error ? err.message
+    : typeof err === "string" ? err
+    : (() => { const o = err as Record<string, unknown> | null;
+        const tag = o && typeof o.tag === "string" ? o.tag : "";
+        const reason = o && typeof (o.value as Record<string, unknown>)?.reason === "string"
+          ? String((o.value as Record<string, unknown>).reason) : "";
+        return `${tag} ${reason}`; })();
+  if (/time?d?\s?out|timeout/i.test(text)) return "timeout";
+  if (/declin|insufficient|reject/i.test(text)) return "declined";
+  if (/host|bridge|unavailable|disconnect/i.test(text)) return "host";
+  return "unknown";
+}
+```
+
+- [ ] **Step 4:** Run `npx vitest run tests/telemetry-topup-error.test.ts` → PASS.
+
+- [ ] **Step 5:** Wire the span + attempt counter into `use-coinage-payment.ts`. Add imports:
+
+```ts
+import { withSpan, captureWarning, SpanOp } from "@/lib/telemetry";
+import { classifyTopupError } from "./topup-error";
+```
+
+  Add an attempt counter beside `processed` (`:133`): `let topupAttempts = 0;`
+
+  Replace the `await manager.topUp(...)` call (`:221`) + its catch so the call is wrapped in a
+  span whose duration is the host-call latency, attempts are counted, and a retry (attempt > 1)
+  emits a duplicate-risk warning (ties to #170):
+
+```ts
+                topupAttempts += 1;
+                if (topupAttempts > 1) {
+                  captureWarning("topUp retry — possible duplicate", {
+                    paymentId: id, attempt: topupAttempts,
+                  });
+                }
+                try {
+                  await withSpan(
+                    "coinage topUp",
+                    "payment.coinage.topup",
+                    () => manager.topUp(0n, { type: "coins", keys: claimed.coins }),
+                    { "topup.attempt": String(topupAttempts) },
+                  );
+                  if (cancelled) return;
+                  log("  claim ok — paid");
+                  setStatus("paid");
+                  onPaidRef.current?.({
+                    paymentId: id, amount: claimed.amount,
+                    coinCount: claimed.coins.length, timestamp: Number(claimed.timestamp),
+                  });
+                } catch (err) {
+                  if (cancelled) return;
+                  processed = false;
+                  const detail = describeError(err);
+                  log(`  claim FAILED: ${detail}`);
+                  console.error("[coinage] raw topUp error:", err);
+                  captureWarning(`topUp failed: ${classifyTopupError(err)}`, { paymentId: id, attempt: topupAttempts });
+                  setStatus("error");
+                  setError(detail);
+                }
+```
+
+- [ ] **Step 6:** Add host-drop warnings — at the standalone-host branch (`:163`) and the
+  `sub.onInterrupt` re-subscribe (`:251`), add:
+
+```ts
+// standalone branch, after the existing log(...):
+captureWarning("no Polkadot host — coins undetectable", { paymentId: id });
+```
+```ts
+// inside sub.onInterrupt(...), after the existing log(...):
+captureWarning("statement subscription interrupted — host drop", { paymentId: id });
+```
+
+- [ ] **Step 7:** Verify: `npx tsc --noEmit` passes; `npx vitest run` all green.
+
+- [ ] **Step 8:** Commit:
+
+```bash
+git add lib/payments/coinage/topup-error.ts lib/payments/coinage/use-coinage-payment.ts tests/telemetry-topup-error.test.ts
+git commit -m "feat(telemetry): topUp() span + error-kind + duplicate/host-drop warnings"
+```
+
+### Task 12: Reporting failure alert-readiness
+
+**Files:** Modify `lib/hooks/use-daily-report.ts`, `lib/hooks/use-bulletin.ts`
+
+The pipeline catches already call `captureError` (so failures already become Sentry issues →
+the team's issue-alert picks them up). This task only makes them **alert-clean**: a stable
+`report.phase` tag, and not letting *expected* causes (offline, unbound) alert as bugs.
+
+- [ ] **Step 1:** In `use-daily-report.ts` final catch (`:336`), enrich the existing
+  `captureError` with classification:
+
+```ts
+import { captureError, isExpectedError } from "@/lib/telemetry"; // ensure isExpectedError is imported
+// ...in the catch:
+        captureError(
+          err,
+          { component: "daily-report", phase: finalize ? "finalize" : "save",
+            expected: isExpectedError(message) },
+          { date }
+        );
+```
+
+- [ ] **Step 2:** In `use-bulletin.ts` upload catch (`:107`), same enrichment:
+
+```ts
+        captureError(err, {
+          component: "bulletin", phase: "upload-report",
+          expected: isExpectedError(message),
+        });
+```
+
+  (Add `isExpectedError` to the existing `@/lib/telemetry` import.)
+
+- [ ] **Step 3:** Verify `npx tsc --noEmit`. The Sentry issue-alert rule (created post-DSN)
+  filters `!expected:true environment:production !tag:e2e-*` so declined/offline don't page.
+
+- [ ] **Step 4:** Commit:
+
+```bash
+git add lib/hooks/use-daily-report.ts lib/hooks/use-bulletin.ts
+git commit -m "feat(telemetry): classify report generate/publish failures for clean alerting"
+```
+
+### Task 13: Journey milestones for e2e payment duration
+
+**Files:** Modify the terminal page / coinage wiring (read the `terminal-payment` journey
+start site first — likely `app/terminal/page.tsx` — to place milestones)
+
+- [ ] **Step 1:** Locate where `journeyTracker.start("terminal-payment", ...)` is called
+  (`grep -rn 'terminal-payment' app lib`). Confirm the journey spans QR-shown → paid.
+- [ ] **Step 2:** Add `journeyTracker.milestone("terminal-payment", "<name>")` at: armed/QR
+  shown, statement-received, decrypted, matched, topup-start, paid — wiring the coinage hook's
+  callbacks to the active journey (the hook exposes status transitions via `setStatus` and the
+  `onPaid` callback; thread milestone calls through those rather than importing the tracker deep
+  into the hook if the journey is owned by the page).
+- [ ] **Step 3:** Verify `npx tsc --noEmit`; confirm in a local smoke run that
+  `journey.terminal-payment` shows the milestone waterfall and `span.duration` = total e2e time.
+- [ ] **Step 4:** Commit:
+
+```bash
+git commit -am "feat(telemetry): terminal-payment journey milestones for e2e duration"
+```
+
+> **Note:** Task 13's exact placement needs the journey-start site read at implementation time
+> (not read during planning). The other Phase-2 tasks are fully concrete.
+
 ## Self-review notes
 
 - **Spec coverage:** §1 setup → Task 8 + Task 9; §2 init hardening → Task 5; §3 sampling → Task 8; §4 PII → Task 1 + Task 7; §5 SAD → Tasks 3–4; §6 captureWarning → Task 2 (helper shipped; broad call-site wiring deferred — only one real WS-reconnect site exists, best wired after seeing real data); §7 expected/unexpected → Task 2; §8 e2e tag → Task 6 (scope-tag scope; per-span attr deferred with dashboards); §9 Matrix-readiness → satisfied by Tasks 2/5/6, bridge out of scope.
