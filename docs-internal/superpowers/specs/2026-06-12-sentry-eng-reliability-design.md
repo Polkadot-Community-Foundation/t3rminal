@@ -248,7 +248,7 @@ Manual smoke test (with a real DSN in `.env.local`, sampling raised):
 | `e2e/fixtures.ts` | set the `e2e-*` tag signal at one chokepoint |
 | `.github/workflows/deploy-frontend.yml` | sampling `'0.0'`→`'1.0'`; add `NEXT_PUBLIC_SENTRY_ENVIRONMENT` |
 | `.env.example` | document `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `_RELEASE`, sampling guidance |
-| `lib/telemetry/*.test.ts` | new vitest tests (scrub, sad, classification, warning) |
+| `tests/telemetry-*.test.ts` | new vitest tests (scrub, sad, classification, warning) — vitest only collects `tests/**/*.test.ts`, env `node` |
 
 ## Open items for the human
 
