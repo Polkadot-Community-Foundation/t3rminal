@@ -7,13 +7,13 @@ test.describe('Terminal — calculator and QR generation', () => {
     await selectMerchantMode(frame);
 
     // Navigate to terminal via bottom nav
-    await navigateToTerminal(frame);
+    await navigateToTerminal(testHost);
   });
 
   test('enters digits via calculator and displays amount', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
-    await navigateToTerminal(frame);
+    await navigateToTerminal(testHost);
 
     // Enter "42"
     await enterAmount(frame, '42');
@@ -26,7 +26,7 @@ test.describe('Terminal — calculator and QR generation', () => {
   test('enters decimal amount', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
-    await navigateToTerminal(frame);
+    await navigateToTerminal(testHost);
 
     // Enter "12.50"
     await enterAmount(frame, '12.50');
@@ -39,7 +39,7 @@ test.describe('Terminal — calculator and QR generation', () => {
   test('backspace removes last digit', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
-    await navigateToTerminal(frame);
+    await navigateToTerminal(testHost);
 
     await enterAmount(frame, '123');
     await expect(frame.locator('[data-testid="amount-display"]')).toHaveText('123');
@@ -51,7 +51,7 @@ test.describe('Terminal — calculator and QR generation', () => {
   test('Generate QR Code button is disabled with zero amount', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
-    await navigateToTerminal(frame);
+    await navigateToTerminal(testHost);
 
     await expect(
       frame.locator('[data-testid="btn-generate-qr"]'),
@@ -61,7 +61,7 @@ test.describe('Terminal — calculator and QR generation', () => {
   test('generates QR code and shows waiting state', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
-    await navigateToTerminal(frame);
+    await navigateToTerminal(testHost);
 
     // Enter an amount
     await enterAmount(frame, '5');
@@ -77,7 +77,7 @@ test.describe('Terminal — calculator and QR generation', () => {
     // Amount should be displayed
     await expect(
       frame.locator('[data-testid="qr-amount"]'),
-    ).toHaveText('5 pUSD');
+    ).toHaveText('5 CASH');
 
     // QR code container should be visible
     await expect(

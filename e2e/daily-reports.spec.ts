@@ -55,7 +55,7 @@ test.describe('Daily reports page', () => {
     }
   });
 
-  test('shows View On-Chain Reports link', async ({ testHost }) => {
+  test('shows the saved reports section and CSV export', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
 
@@ -64,9 +64,8 @@ test.describe('Daily reports page', () => {
       frame.locator('[data-testid="reports-header"]'),
     ).toBeVisible({ timeout: 30_000 });
 
-    // The "View On-Chain Reports" link should be visible
-    await expect(
-      frame.getByText('View On-Chain Reports'),
-    ).toBeVisible();
+    // The reports page content should render.
+    await expect(frame.getByText('Saved Daily Reports')).toBeVisible();
+    await expect(frame.getByText('Export sales (CSV)')).toBeVisible();
   });
 });

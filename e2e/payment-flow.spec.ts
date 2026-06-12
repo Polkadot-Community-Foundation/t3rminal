@@ -5,7 +5,7 @@ test.describe('Payment flow — merchant to customer', () => {
   test('merchant generates a pUSD payment QR', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
-    await navigateToTerminal(frame);
+    await navigateToTerminal(testHost);
     await enterAmount(frame, '1');
 
     await frame.locator('[data-testid="btn-generate-qr"]').click();
@@ -22,6 +22,6 @@ test.describe('Payment flow — merchant to customer', () => {
     await expect(qrContainer).toBeVisible({ timeout: 10_000 });
     await expect(
       frame.locator('[data-testid="qr-amount"]'),
-    ).toHaveText('1 pUSD');
+    ).toHaveText('1 CASH');
   });
 });
