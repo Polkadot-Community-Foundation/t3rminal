@@ -262,6 +262,64 @@ Manual smoke test (with a real DSN in `.env.local`, sampling raised):
 - force an error → confirm one Sentry Issue with `environment`, `release`, merchant/terminal
   tags, and no secrets.
 
+## Monitored workflows (team requirements, 2026-06-13)
+
+Two primary workflows get explicit monitoring + alerting, plus cross-cutting host anomalies.
+All metrics use the native patterns above (`span.duration` + `count`/`count_if`), never custom
+numeric attrs.
+
+### Workflow 1 — Payments E2E (W3S coinage)
+
+Flow: `use-coinage-payment.ts` — subscribe to statement store (`:173`) → decrypt envelope
+(`:188`) → match id+amount (`:198`) → `manager.topUp()` (`:221`) → paid (`:225`).
+
+- **`topUp()` latency / errors** — wrap `:221` in a `payment.coinage.topup` span; its duration
+  IS the host-call latency (`p95(span.duration)`). On error set status + classified
+  `topup.error_kind` (timeout/declined/host/unknown) string attr.
+- **Retries / duplicate risk** — track `topup.attempt` (string) incremented on the `:234`
+  retry path; on attempt > 1 emit `captureWarning("topUp retry — possible duplicate", {paymentId, attempt})`.
+  This is the detection half of [#170](https://github.com/paritytech/t3rminal-internal/issues/170);
+  enforcement (host idempotency key) is tracked there, not here.
+- **Total e2e duration** — add journey milestones to `terminal-payment`: `armed`,
+  `statement-received`, `decrypted`, `matched`, `topup-start`, `paid`. Duration =
+  `span.duration` on `journey.terminal-payment`.
+- **Volume** — `count()` of successful `payment.outcome` spans. **Amount stays a string**
+  (drill-down/filter only; never summed — see non-goal below).
+- **Statement-store / host drop** — the subscription re-arms on `sub.onInterrupt` (`:249`) →
+  `captureWarning("statement subscription interrupted")`. Standalone host (`:157`, coins can
+  never arrive) → `captureWarning("no Polkadot host — coins undetectable")`.
+
+### Workflow 2 — Reporting (notify on failure only)
+
+- **Fails to generate** — daily-report finalize/save (`use-daily-report.ts:293,336`) + receipt
+  build (`receipts/receipt-generator.ts`). Already throws + `captureError`; ensure classified
+  **unexpected** (so it alerts) with a stable `report.phase` attr.
+- **Fails to publish to bulletin** — `use-bulletin.ts:107` (`bulletin.upload-report`). Same:
+  unexpected + alert-ready.
+
+### Cross-cutting host anomalies
+
+- **Re-org invalidating a settled tx** — `lib/tx/submit.ts:305-318` already detects a tx that
+  finalizes failed *after* we resolved it on best-block, but only `console.warn`s (`:310`).
+  Upgrade to `captureError("reorg invalidated settled tx", { block, dispatchError })` — a
+  silent data-integrity event today. High value.
+- **Host network drops** — the statement-subscription interrupt above; plus any RPC/ws
+  reconnect site as it's found (currently thin — one site).
+
+### Alerting model (rules created post-DSN, via the team's Matrix path)
+
+- **Issue alerts** (error/message events → Matrix): report generate/publish failures, reorg
+  invalidation, `topUp` errors, duplicate-topUp warnings.
+- **Metric alerts** (span data): `p95(span.duration) > threshold` on
+  `payment.coinage.topup` (timeouts), finalization-timeout rate, duplicate count.
+- All filtered to `environment:production !tag:e2e-*` (e2e scope tag from §8).
+
+### Explicit non-goal
+
+**Sentry does not produce financial reports.** It tracks payment *volume* (`count()`) and
+*reliability*; it never sums amounts/revenue. Authoritative financial totals live in the daily
+reports. `payment.amount` exists only as a per-event string for debugging a specific payment.
+
 ## File-touch summary
 
 | File | Change |
@@ -273,6 +331,10 @@ Manual smoke test (with a real DSN in `.env.local`, sampling raised):
 | `lib/telemetry/index.ts` | export new helpers |
 | `instrumentation-client.ts` | `environment`, `release`, `beforeSend(Transaction)` |
 | `sentry.server.config.ts` / `sentry.edge.config.ts` | same init hardening |
+| `lib/payments/coinage/use-coinage-payment.ts` | `payment.coinage.topup` span + attempt/retry warning + subscription-interrupt/standalone-host warnings + journey milestones |
+| `lib/tx/submit.ts` | reorg `captureError` at `:310` |
+| `lib/hooks/use-daily-report.ts` | report-generate failures classified unexpected + `report.phase` |
+| `lib/hooks/use-bulletin.ts` | bulletin-publish failure classified unexpected + alert-ready |
 | `e2e/fixtures.ts` | set the `e2e-*` tag signal at one chokepoint |
 | `.github/workflows/deploy-frontend.yml` | sampling `'0.0'`→`'1.0'`; add `NEXT_PUBLIC_SENTRY_ENVIRONMENT` |
 | `.env.example` | document `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `_RELEASE`, sampling guidance |
