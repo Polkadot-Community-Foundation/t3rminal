@@ -15,26 +15,45 @@
 ## Task ledger (plan has Phase 1: T1–9, Phase 2: T10–13)
 | Task | State | Evidence |
 |---|---|---|
-| Baseline: `npm ci` | PENDING | — |
-| Baseline: build (`npm run build`) | PENDING | — |
-| Baseline: unit (`npx vitest run`) | PENDING | — |
-| Baseline: e2e (`npx playwright test`) | PENDING | — |
-| T1 scrub module + tests | PENDING | — |
-| T2 isExpectedError + captureWarning | PENDING | — |
-| T3 payment/finalization SAD | PENDING | — |
-| T4 journey SAD + markSad | PENDING | — |
-| T5 shared init opts wiring | PENDING | — |
-| T6 e2e scope-tag | PENDING | — |
-| T7 register secret + exports | PENDING | — |
-| T8 deploy workflow + .env.example | PENDING | — |
-| T9 local smoke (DSN) | PENDING | — |
-| T10 reorg capture (submit.ts) | PENDING | — |
-| T11 topUp span + classifier | PENDING | — |
-| T12 reporting alert-readiness | PENDING | — |
-| T13 journey milestones | PENDING | — |
+| Baseline: `npm ci` | DONE | exit 0; @sentry/nextjs 10.56.0, vitest 3.2.6, pw 1.60.0; lockfile untouched |
+| Baseline: build (`npm run build`) | DONE | Next 16.2.7, compiled OK, tsc OK, 17 static pages |
+| Baseline: unit (`npx vitest run`) | DONE | 8 files / 53 tests pass (565ms) |
+| Baseline: e2e (`npx playwright test`) | FEASIBLE | home.spec 2/2 pass 7.4s; webServer=next dev:5199 reused. |
+| FINAL e2e (full, on branch) | DONE | **16/16 pass, 19.6s** (daily-reports, history, home, payment-flow, terminal) telemetry disabled (no DSN) |
+| T1 scrub module + tests | DONE | e764056; verified git+tsc, vitest confirming |
+| T2 isExpectedError + captureWarning (+R-A op.sad) | DONE | f4b0719 |
+| T3 payment/finalization SAD | DONE | ac10b55 |
+| T4 journey SAD + markSad | DONE | 3e5da4d |
+| T5 shared init opts wiring (+R-B wiring test) | DONE | 199b6f3; uses Parameters<typeof Sentry.init>[0]; types from @sentry/core |
+| T6 e2e scope-tag | DONE | 199b6f3 (fixtures.ts re-parents 3 exports via taggedBase.extend) |
+| T7 register secret + exports | DONE | a348a49 |
+| T8 deploy workflow + .env.example | DONE | 2892da5 (sampling 1.0, env=production) |
+| T9 local smoke (DSN) | DONE (partial) | build with real DSN+sampling set inline = green; live-event app-level scrub round-trip DEFERRED to hands-on (needs interactive Sentry check; prod ingestion deferred to DSN-secret-at-deploy anyway). Binding scrub proof = unit tests + wiring test. |
+| T10 reorg capture (submit.ts) | DONE (compiles-only) | 0b13cc1; barrel import survives output:export build; no e2e exercises reorg |
+| T11 topUp span + classifier | DONE | 8729bff; classifier TDD-verified; hook wiring compiles-only (no e2e completes topUp) |
+| T12 reporting alert-readiness | DONE (compiles-only) | ee59626; isExpectedError on existing captureError calls |
+| T13 journey milestones | DONE (minimal) | 6440281; added qr-generated for coins path; sub-hook milestones skipped (fragile cross-component coupling) |
+| Phase 2 verify: tsc/vitest/build | DONE | tsc 0, vitest 72/72, build green (17 routes) |
 
-## What was NOT done / blockers
-- (none yet)
+## Progress notes
+- **Phase 1 VERIFIED** (not just claimed): independent `git log` (7 commits), diff-stat (18 files, all in-lane), `tsc --noEmit` exit 0, `vitest run` 70/70. Fixture change isolated: `payment-flow.spec` 1/1 + `home.spec` 2/2 pass.
+- **Advisor fix landed** (a057fb3): `scrubEvent` now also scrubs `event.extra` (where `captureError`'s 3rd arg lands) — was a blind spot. Known limitation recorded in code: scrubDataMap walks top-level strings only, not nested objects (keep `extra` flat).
+
+## FINAL SUMMARY (2026-06-13, batch complete — NOT merged)
+- Branch `feat/sentry-eng-reliability`, **13 commits ahead of origin/main**, clean tree (only `bin/` untracked).
+- **Verified independently:** tsc 0 errors · vitest **72/72** · `npm run build` green (17 routes) · full e2e **16/16** · build green with real DSN set.
+- Phase 1 (T1–8 + R-A/R-B + extra-scrub fix) and Phase 2 (T10–13) all landed. Per-task evidence in ledger above.
+- **NOT merged** (per instruction). No PR opened. DSN repo-secret NOT set (deferred to deploy).
+
+## What was NOT done / deferred (honest list)
+- **Behaviorally unverified (compiles + reviewed only):** the `topUp()` span/warnings, reorg `captureError`, and reporting classification — no e2e exercises a completed customer `topUp()` or a reorg, so these are proven to compile + reviewed for correctness, not run. (Unit-tested: scrub, helpers, SAD attrs, classifier, init wiring.)
+- **T13 minimal:** only the coins `qr-generated` journey milestone added; sub-hook milestones (statement-received/decrypted/matched/topup-start) skipped to avoid fragile cross-component coupling. `journey.duration_ms` still spans full e2e.
+- **Live-event scrub round-trip** not run autonomously (deferred to hands-on Sentry check when DSN secret is set).
+- **Idempotency enforcement:** tracked in t3rminal-internal#170 (out of scope here).
+- **Matrix alert rules:** team-owned; created post-DSN.
+
+## Resume / next steps for the human
+- Review the branch; when ready: set repo secret `NEXT_PUBLIC_SENTRY_DSN` (value in spec/memory), open PR (rebase on origin/main first), merge, then hands-on smoke (trigger a real error carrying a fake secret → confirm redacted in Sentry).
 
 ## How to resume
 1. `cd /Users/ionut/Documents/GitHub/t3rminal && git checkout feat/sentry-eng-reliability`

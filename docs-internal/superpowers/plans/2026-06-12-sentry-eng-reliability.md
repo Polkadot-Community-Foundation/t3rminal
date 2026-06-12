@@ -1073,6 +1073,63 @@ git commit -am "feat(telemetry): terminal-payment journey milestones for e2e dur
 > **Note:** Task 13's exact placement needs the journey-start site read at implementation time
 > (not read during planning). The other Phase-2 tasks are fully concrete.
 
+## Advisor refinements (2026-06-13) — fold into the named tasks
+
+**R-A (in Task 2): reconcile `op.sad` so `captureWarning`'s flip isn't orphaned.** `captureWarning`
+sets `op.sad="true"` on the active root span, but nothing initialises/reads `op.sad`. Make
+`withSpan` default it so it's a real, ratio-able friction flag for `withSpan`-wrapped operations
+(journeys use `markSad` instead, since they have no active span during the flow). In
+`sentry-helpers.ts` `withSpan`, pass `attributes: { "op.sad": "false", ...attributes }` to
+`Sentry.startSpan`, and in its error branch add `span.setAttribute("op.sad", "true")`. Add to
+`tests/telemetry-helpers.test.ts`:
+
+```ts
+import { withSpan } from "@/lib/telemetry/sentry-helpers";
+describe("withSpan op.sad", () => {
+  it("defaults op.sad false and flips true on throw", () => {
+    const seen: Array<Record<string, unknown>> = [];
+    // reuse the @sentry/nextjs mock from this file: have startSpan push opts.attributes
+    // and a span stub whose setAttribute records into the same array's last entry.
+    // (If the existing mock lacks startSpan, extend it; assert "op.sad" === "false"
+    //  on success and that setAttribute("op.sad","true") fires in the catch.)
+  });
+});
+```
+(The executing agent: extend the file's existing `@sentry/nextjs` mock to capture `startSpan`
+attributes + `setAttribute` calls, mirroring `tests/telemetry-sad.test.ts`.)
+
+**R-B (in Task 5): lock the scrub *attachment*, not just the functions.** Pure-function tests +
+tsc don't prove `beforeSend` is wired; a refactor dropping it passes every check. Create
+`tests/telemetry-init-wiring.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { commonInitOptions } from "@/lib/telemetry/sentry-init";
+import { scrubEvent, scrubTransaction } from "@/lib/telemetry/scrub";
+
+describe("commonInitOptions wiring", () => {
+  it("attaches the PII scrub hooks", () => {
+    const o = commonInitOptions();
+    expect(o.beforeSend).toBe(scrubEvent);
+    expect(o.beforeSendTransaction).toBe(scrubTransaction);
+  });
+  it("reads environment + DSN-gates enabled", () => {
+    const o = commonInitOptions();
+    expect(typeof o.environment).toBe("string");
+    expect(o.enabled).toBe((process.env.NEXT_PUBLIC_SENTRY_DSN ?? "").length > 0);
+  });
+});
+```
+
+**R-C (Task 9 → autonomous):** the manual smoke can't run while the user's asleep. Minimum
+autonomous proof = R-A + R-B unit/wiring tests + a build with a real DSN set. Steps: write
+`.env.local` (gitignored) with the DSN + `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=1.0` +
+`NEXT_PUBLIC_SENTRY_ENVIRONMENT=local`, run `npm run build` (proves the wired init compiles with
+a live DSN), then **best-effort** drive a Playwright page that calls
+`Sentry.captureException(new Error("smoke <registeredSecret>"))` and query the project for the
+event, asserting the secret is absent. If the app-level path is flaky autonomously, the wiring
+test (R-B) + scrub unit tests (T1) are the binding proof; note the app-level check as deferred.
+
 ## Self-review notes
 
 - **Spec coverage:** §1 setup → Task 8 + Task 9; §2 init hardening → Task 5; §3 sampling → Task 8; §4 PII → Task 1 + Task 7; §5 SAD → Tasks 3–4; §6 captureWarning → Task 2 (helper shipped; broad call-site wiring deferred — only one real WS-reconnect site exists, best wired after seeing real data); §7 expected/unexpected → Task 2; §8 e2e tag → Task 6 (scope-tag scope; per-span attr deferred with dashboards); §9 Matrix-readiness → satisfied by Tasks 2/5/6, bridge out of scope.
