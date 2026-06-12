@@ -253,6 +253,9 @@ Manual smoke test (with a real DSN in `.env.local`, sampling raised):
 ## Open items for the human
 
 - ~~Create the Sentry project + DSN~~ — **done** (exists in `paritytech`, DSN above).
-- Set the GitHub repo secret `NEXT_PUBLIC_SENTRY_DSN` — **after** the scrub lands (ordering
-  note in §1).
+- Set the GitHub repo secret `NEXT_PUBLIC_SENTRY_DSN` = the DSN above — **deferred to
+  deploy time** (decided 2026-06-12, concurrent work in the repo). Value:
+  `https://d525dec6a98895f678ca4f0e726a9bd7@o4511059872841728.ingest.de.sentry.io/4511547331903568`.
+  This is the deploy-time activation switch; it must land only once the scrub is merged
+  (ordering note in §1). Command: `gh secret set NEXT_PUBLIC_SENTRY_DSN --repo paritytech/t3rminal --body '<dsn>'`.
 - Matrix delivery path is owned by the team; the Sentry alert rule is created post-ingestion.
