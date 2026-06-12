@@ -28,6 +28,7 @@ import {
 } from "@/lib/config/t3rminal-config-qr";
 
 import { overwriteCatalogFromQr } from "@/lib/items/catalog";
+import { registerSecret } from "@/lib/telemetry/scrub";
 import { getSetting, setSetting } from "@/lib/storage/database";
 import { onStorageChange } from "@/lib/storage/host-storage";
 
@@ -72,6 +73,7 @@ export async function importAdminQrConfig(
   payload: T3rminalConfigQrPayloadV2,
   rawUr: string,
 ): Promise<void> {
+  registerSecret(payload.reportPassword);
   // Serialize the two `settings` writes — they target the same host-storage
   // table and a concurrent read/modify/write race here was producing
   // `StorageErr::Unknown` in the host. The catalog overwrite hits different
@@ -97,6 +99,7 @@ export async function loadAdminQrPayload(): Promise<T3rminalConfigQrPayloadV2 | 
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== "object" || parsed === null) return null;
+    registerSecret((parsed as { reportPassword?: string }).reportPassword);
     return parsed as T3rminalConfigQrPayloadV2;
   } catch {
     return null;
