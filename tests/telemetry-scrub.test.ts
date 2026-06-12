@@ -46,6 +46,23 @@ describe("scrubEvent — registered secrets", () => {
     expect(out.breadcrumbs[0].data.reportPassword).toBe("[redacted]");
     expect(out.breadcrumbs[0].data.receivingAddress).toBe("5GrwvaEF…");
   });
+
+  it("scrubs event.extra (where captureError's 3rd arg lands)", () => {
+    registerSecret("S3CR3T-extra-pw-cccccccccccccccc");
+    const ev = {
+      extra: {
+        reportPassword: "leaked-here",
+        receivingAddress: "5GrwvaEF5zXb26Fz9rcQpDWS57Ct",
+        note: "ctx S3CR3T-extra-pw-cccccccccccccccc trailing",
+        date: "2026-06-13",
+      },
+    } as any;
+    const out = scrubEvent(ev) as any;
+    expect(out.extra.reportPassword).toBe("[redacted]");
+    expect(out.extra.receivingAddress).toBe("5GrwvaEF…");
+    expect(out.extra.note).not.toContain("S3CR3T");
+    expect(out.extra.date).toBe("2026-06-13");
+  });
 });
 
 describe("scrubTransaction", () => {

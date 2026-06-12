@@ -71,6 +71,11 @@ export function scrubEvent(event: ErrorEvent): ErrorEvent {
     }
     const traceData = (event.contexts?.trace?.data ?? null) as Record<string, unknown> | null;
     if (traceData) scrubDataMap(traceData);
+    // `captureError(err, tags, extra)` routes its 3rd arg into `event.extra` —
+    // scrub it too, or that becomes a blind spot. NOTE: scrubDataMap only walks
+    // top-level string values; a secret nested inside an object value would not
+    // be reached (known limitation — keep `extra` payloads flat).
+    if (event.extra) scrubDataMap(event.extra as Record<string, unknown>);
   } catch {
     // telemetry must never throw
   }
