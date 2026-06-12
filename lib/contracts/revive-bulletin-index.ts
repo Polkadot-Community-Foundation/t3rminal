@@ -108,6 +108,21 @@ export async function getMerchantTerminal(): Promise<MerchantTerminal> {
  */
 export type OnChainPhase = "submitting-onchain";
 
+/** Default timeout for host-bridge reads. The mobile host's bridge reads can
+ *  hang indefinitely (no `chainHead` state delivered), so every read on the
+ *  Asset Hub client is raced against this so the flow can't stall before the
+ *  signature step. */
+const READ_TIMEOUT_MS = 8000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`[BulletinIndex] ${what} timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
 /**
  * Store a daily report CID via Revive.call extrinsic.
  *
@@ -151,7 +166,13 @@ export async function storeDailyReportViaRevive(
   await claimDefaultAllowances();
 
   const client = await getAPI();
-  await client.raw.assetHub.getBestBlocks();
+  // Warm the client, but don't let a non-responsive host-bridge read hang the
+  // flow before we ever reach the signature step (seen on the mobile host).
+  await withTimeout(
+    client.raw.assetHub.getBestBlocks(),
+    READ_TIMEOUT_MS,
+    "getBestBlocks",
+  ).catch((e) => console.warn("[BulletinIndex] getBestBlocks warmup timed out, continuing:", e));
 
   // Untyped tx surface — matches Tommy's writeContract on the main branch.
   const unsafeApi = client.raw.assetHub.getUnsafeApi();
@@ -174,30 +195,45 @@ export async function storeDailyReportViaRevive(
   const reviveTx = unsafeApi.tx.Revive as unknown as ReviveTxShim;
 
   // Probe mapping status via ReviveApi.address(ss58) → query.Revive.OriginalAccount[h160].
-  let isMapped = false;
-  try {
+  // Each read is timeout-guarded: the mobile host bridge can leave these reads
+  // pending forever, which previously hung the whole flow here — before the
+  // signature step was ever reached, so no prompt appeared on the phone.
+  const isAccountMapped = async (): Promise<boolean> => {
     const reviveApi = (unsafeApi.apis as unknown as {
       ReviveApi?: { address(ss58: string): Promise<string | null> };
     }).ReviveApi;
-    const h160 = await reviveApi?.address(origin);
-    if (h160) {
-      const original = await (unsafeApi.query as unknown as {
-        Revive?: { OriginalAccount?: { getValue(h: string): Promise<unknown> } };
-      }).Revive?.OriginalAccount?.getValue(h160);
-      isMapped = original != null;
-    }
+    const addr = reviveApi?.address(origin);
+    const h160 = addr ? await withTimeout(addr, READ_TIMEOUT_MS, "ReviveApi.address") : null;
+    if (!h160) return false;
+    const q = (unsafeApi.query as unknown as {
+      Revive?: { OriginalAccount?: { getValue(h: string): Promise<unknown> } };
+    }).Revive?.OriginalAccount?.getValue(h160);
+    const original = q ? await withTimeout(q, READ_TIMEOUT_MS, "Revive.OriginalAccount") : null;
+    return original != null;
+  };
+
+  let isMapped = false;
+  try {
+    isMapped = await isAccountMapped();
     console.log(`[BulletinIndex] account mapped on-chain: ${isMapped}`);
   } catch (err) {
-    console.warn("[BulletinIndex] mapping probe failed, assume unmapped:", err);
+    // Read timed out / threw — don't abort. Fall through to map_account, which
+    // is idempotent (AccountAlreadyMapped is caught) and whose inclusion oracle
+    // confirms quickly if the account was in fact already mapped.
+    console.warn("[BulletinIndex] mapping probe failed/timed out — will attempt map_account:", err);
   }
 
   const submitOpts = { mortality: { mortal: true as const, period: 256 } };
 
   if (!isMapped) {
     onPhase?.("submitting-onchain");
-    console.log("[BulletinIndex] → Revive.map_account (first-time mapping for this product account)");
+    console.log("[BulletinIndex] → Revive.map_account (awaiting signature on phone)…");
     try {
-      await watchTx(reviveTx.map_account(), signer, submitOpts, undefined, "map_account");
+      // Same protection as Revive.call below: an inclusion oracle that resolves
+      // once the account shows mapped in state, for hosts whose follow never
+      // delivers tx-state events. If the account was already mapped, the oracle
+      // confirms on its first poll instead of waiting out the stall watchdog.
+      await watchTx(reviveTx.map_account(), signer, submitOpts, isAccountMapped, "map_account");
       console.log("[BulletinIndex] ✓ map_account confirmed");
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
