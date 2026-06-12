@@ -14,25 +14,13 @@ test.describe('Home page loads via Host API', () => {
     ).toHaveText('T3RMINAL');
   });
 
-  test('shows continue button when wallet is connected', async ({ testHost }) => {
+  test('auto-redirects to the merchant home with bottom nav', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
 
-    await expect(
-      frame.locator('[data-testid="btn-merchant"]'),
-    ).toBeVisible();
-  });
-
-  test('continues to merchant mode and shows bottom nav', async ({ testHost }) => {
-    const frame = await waitForAppReady(testHost);
-
+    // Once the host connection resolves, `/` auto-redirects to /items.
     await selectMerchantMode(frame);
 
-    // "for Merchant" subtitle should appear
-    await expect(
-      frame.getByText('for Merchant'),
-    ).toBeVisible({ timeout: 10_000 });
-
-    // Bottom nav links should be visible
+    // Bottom nav links should be visible on the merchant home.
     await expect(frame.getByRole('link', { name: 'Payment', exact: true })).toBeVisible();
     await expect(frame.getByText('History')).toBeVisible();
     await expect(frame.getByText('Reports')).toBeVisible();
