@@ -1,6 +1,8 @@
 import type { TestHost } from '@parity/host-api-test-sdk/playwright';
 import type { FrameLocator } from '@playwright/test';
 
+const PRODUCT_PORT = '5199';
+
 /**
  * Wait for the app to be fully ready inside the test host iframe:
  * 1. Host API connection established (product-sdk <-> host-container)
@@ -25,8 +27,13 @@ export async function waitForAppReady(
 }
 
 /**
- * Select merchant mode from the home page.
- * Assumes the app is on the home page with wallet connected.
+ * Wait for the merchant home to be ready.
+ *
+ * There is no merchant/customer landing step anymore: once the host
+ * connection resolves, `/` auto-redirects to the merchant home (`/items`).
+ * This waits for that home to render (bottom nav present) instead of clicking
+ * a (no-longer-existent) "merchant" button. Kept under the old name so the
+ * specs read the same.
  */
 export async function selectMerchantMode(
   frame: FrameLocator,
@@ -34,30 +41,33 @@ export async function selectMerchantMode(
 ): Promise<void> {
   const timeout = options?.timeout ?? 30_000;
   await frame
-    .locator('[data-testid="btn-merchant"]')
-    .click({ timeout });
+    .getByRole('link', { name: 'Payment', exact: true })
+    .waitFor({ state: 'visible', timeout });
 }
 
 /**
- * Select customer mode from the home page.
+ * Open the manual-amount keypad terminal (`/terminal`).
+ *
+ * The keypad is no longer reachable by a tap — the bottom-nav "Payment" goes
+ * to `/items`, and "Charge" jumps straight to the QR with the cart total. So
+ * we navigate the product iframe directly to `/terminal` to exercise the
+ * keypad + QR generation.
  */
-export async function selectCustomerMode(
-  frame: FrameLocator,
-  options?: { timeout?: number },
-): Promise<void> {
-  const timeout = options?.timeout ?? 30_000;
-  await frame
-    .locator('[data-testid="btn-customer"]')
-    .click({ timeout });
-}
-
 export async function navigateToTerminal(
-  frame: FrameLocator,
+  testHost: TestHost,
   options?: { timeout?: number },
 ): Promise<void> {
   const timeout = options?.timeout ?? 30_000;
-  await frame.getByRole('link', { name: 'Payment', exact: true }).click({ timeout });
-  await frame
+  const productFrame = testHost
+    .page
+    .frames()
+    .find((f) => f.url().includes(PRODUCT_PORT));
+  if (!productFrame) throw new Error('navigateToTerminal: product frame not found');
+  await productFrame.evaluate(() => {
+    window.location.href = '/terminal';
+  });
+  await testHost
+    .productFrame()
     .locator('[data-testid="terminal-header"]')
     .waitFor({ state: 'visible', timeout });
 }
