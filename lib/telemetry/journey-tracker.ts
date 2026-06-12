@@ -46,6 +46,7 @@ interface ActiveJourney<T> {
   startedAt: number;
   milestones: Map<string, number>;
   attributes: Record<string, string | number | boolean>;
+  sad: boolean;
 }
 
 export class JourneyTracker<T extends string> {
@@ -66,6 +67,7 @@ export class JourneyTracker<T extends string> {
       startedAt: startedAt ?? performance.now(),
       milestones: new Map(),
       attributes,
+      sad: false,
     });
     console.info(`[Journey:${type}] started`);
   }
@@ -86,6 +88,12 @@ export class JourneyTracker<T extends string> {
     const elapsed = performance.now() - journey.startedAt;
     journey.milestones.set(name, elapsed);
     console.info(`[Journey:${type}] ${name} +${elapsed.toFixed(0)}ms`);
+  }
+
+  /** Mark an in-flight journey as "sad" (completed but with friction). */
+  markSad(type: T): void {
+    const journey = this.active.get(type);
+    if (journey) journey.sad = true;
   }
 
   addAttributes(
@@ -115,6 +123,7 @@ export class JourneyTracker<T extends string> {
     this.active.delete(type);
 
     const resolvedReason = reason ?? "unknown";
+    journey.sad = true;
     this._emitSpan(
       journey,
       type,
@@ -151,6 +160,7 @@ export class JourneyTracker<T extends string> {
     const attributes: Record<string, string | number | boolean> = {
       "journey.type": type,
       "journey.duration_ms": Math.round(totalMs),
+      "journey.sad": journey.sad ? "true" : "false",
       ...journey.attributes,
     };
     if (failureReason) {

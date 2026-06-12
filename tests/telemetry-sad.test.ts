@@ -16,6 +16,7 @@ vi.mock("@sentry/nextjs", () => ({
 }));
 
 import { recordPaymentOutcome, recordFinalizationLatency } from "@/lib/telemetry/payment-metrics";
+import { journeyTracker } from "@/lib/telemetry/journey-tracker";
 
 beforeEach(() => { startSpanAttrs.length = 0; });
 
@@ -34,5 +35,27 @@ describe("finalization.sad", () => {
     expect(startSpanAttrs.at(-1)!["finalization.sad"]).toBe("false");
     recordFinalizationLatency({ saleId: "s2", latencyMs: 9000, finalized: false });
     expect(startSpanAttrs.at(-1)!["finalization.sad"]).toBe("true");
+  });
+});
+
+describe("journey.sad", () => {
+  it("defaults to 'false' on a clean complete()", () => {
+    journeyTracker.start("page-load");
+    journeyTracker.complete("page-load");
+    const attrs = startSpanAttrs.find((a) => a["journey.type"] === "page-load")!;
+    expect(attrs["journey.sad"]).toBe("false");
+  });
+
+  it("is 'true' after markSad(), and 'true' on fail()", () => {
+    journeyTracker.start("authenticate");
+    journeyTracker.markSad("authenticate");
+    journeyTracker.complete("authenticate");
+    const ok = startSpanAttrs.find((a) => a["journey.type"] === "authenticate")!;
+    expect(ok["journey.sad"]).toBe("true");
+
+    journeyTracker.start("items-checkout");
+    journeyTracker.fail("items-checkout", "boom");
+    const failed = startSpanAttrs.find((a) => a["journey.type"] === "items-checkout")!;
+    expect(failed["journey.sad"]).toBe("true");
   });
 });
