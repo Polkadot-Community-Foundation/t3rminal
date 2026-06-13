@@ -13,27 +13,27 @@ import { createPapiProvider } from "@novasamatech/host-api-wrapper"
 import { createClient, PolkadotClient } from "polkadot-api"
 import { getWsProvider } from "@polkadot-api/ws-provider"
 
-// Paseo Individuality (Next v2) — people-system parachain hosting pallet-coinage
-// and the pUSD foreign asset. Genesis last refreshed 2026-06-02 (chain reset
-// post-Paseo-Next-v2 upgrade); must match what `chain_getBlockHash[0]` reports.
+// Summit People — people-system parachain hosting pallet-coinage and the pUSD
+// foreign asset. Genesis verified live 2026-06-11 (SUMMIT_PLATFORM_PREREQUISITES).
+// Constant name kept (PASEO_*) to avoid touching importers; value is Summit.
 export const PASEO_INDIVIDUALITY_GENESIS =
-  "0xc5af1826b31493f08b7e2a823842f98575b806a784126f28da9608c68665afa5" as `0x${string}`
-export const PASEO_INDIVIDUALITY_WS = "wss://paseo-people-next-system-rpc.polkadot.io"
+  "0xbe5238f82c3553bc57ac3be43bef110bd58c49ad0744110814985195ca7d8c4e" as `0x${string}`
+export const PASEO_INDIVIDUALITY_WS = "wss://summit-people-rpc.polkadot.io"
 
-// Paseo Asset Hub Next (v2) — Revive contracts (T3rminalBulletinIndex).
-// Genesis last refreshed 2026-06-02 (chain reset post-Paseo-Next-v2 upgrade);
-// must match what `state_getRuntimeVersion` reports + the genesis baked into
-// `@parity/product-sdk-descriptors/paseo-asset-hub` metadata, otherwise PAPI's
-// computed `additionalSigned` diverges from the chain's expectation and every
-// signed extrinsic dies with `BadProof`.
+// Summit Asset Hub — Revive contracts (T3rminalBulletinIndex). Genesis verified
+// live 2026-06-11 (SUMMIT_PLATFORM_PREREQUISITES). Constant name kept (PASEO_*)
+// to avoid touching importers; value is Summit. MUST match the genesis baked
+// into the .papi descriptor metadata (regenerate against Summit AH — Diff 5),
+// otherwise PAPI's computed `additionalSigned` diverges and every signed
+// extrinsic dies with `BadProof`.
 export const PASEO_ASSET_HUB_GENESIS =
-  "0xbf0488dbe9daa1de1c08c5f743e26fdc2a4ecd74cf87dd1b4b1eeb99ae4ef19f" as `0x${string}`
-// Overridable at build time so a deploy to a different chain (e.g. previewnet)
-// points the runtime app at the same chain its contract was deployed to.
+  "0xf388dc6d6cdf6fb77eac3c4a91f31bc0c8642b142f1a757512ab7849f9f70660" as `0x${string}`
+// Overridable at build time so a deploy to a different chain points the runtime
+// app at the same chain its contract was deployed to.
 // scripts/deploy-bulletin-index.ts writes NEXT_PUBLIC_ASSET_HUB_WS into
-// .env.local; unset falls back to Paseo Asset Hub Next.
+// .env.local; unset falls back to Summit Asset Hub.
 export const PASEO_ASSET_HUB_WS =
-  process.env.NEXT_PUBLIC_ASSET_HUB_WS ?? "wss://paseo-asset-hub-next-rpc.polkadot.io"
+  process.env.NEXT_PUBLIC_ASSET_HUB_WS ?? "wss://summit-asset-hub-rpc.polkadot.io"
 
 // Bulletin chain access goes through host `preimageManager.submit` (see
 // lib/bulletin/client.ts) — the host's local signer is the only path that

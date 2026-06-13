@@ -11,12 +11,13 @@
  *   chain_getBlockHash with params [0] over JSON-RPC.
  */
 
-export type NetworkKey = "paseo" | "paseo-next-v2" | "previewnet";
+export type NetworkKey = "paseo" | "paseo-next-v2" | "previewnet" | "summit";
 
 export const SUPPORTED_NETWORKS: NetworkKey[] = [
   "paseo",
   "paseo-next-v2",
   "previewnet",
+  "summit",
 ];
 export const DEFAULT_NETWORK: NetworkKey = "paseo";
 
@@ -134,6 +135,32 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     peopleChain: null,
     ipfsGateway: "https://previewnet.substrate.dev/ipfs/",
     nativeToken: { symbol: "PAS", decimals: 10 },
+  },
+  // Summit network. Endpoints + genesis hashes verified live 2026-06-11
+  // (SUMMIT_PLATFORM_PREREQUISITES). mainChain.genesisHash is load-bearing for
+  // the contract deploy (deployBulletinIndex throws if empty); decimals: 10
+  // drives the dry-run deposit limit + funding floor. SUM token.
+  summit: {
+    key: "summit",
+    displayName: "Summit",
+    isTestnet: true,
+    mainChain: {
+      wsUrl: "wss://summit-asset-hub-rpc.polkadot.io",
+      genesisHash:
+        "0xf388dc6d6cdf6fb77eac3c4a91f31bc0c8642b142f1a757512ab7849f9f70660",
+    },
+    bulletinChain: {
+      wsUrl: "wss://summit-bulletin-rpc.polkadot.io",
+      genesisHash:
+        "0x147aae0d60625af72300d4d5ebd5dcb869f7ac4c6c1a326be1cbb14a4a65ae77",
+    },
+    peopleChain: {
+      wsUrl: "wss://summit-people-rpc.polkadot.io",
+      genesisHash:
+        "0xbe5238f82c3553bc57ac3be43bef110bd58c49ad0744110814985195ca7d8c4e",
+    },
+    ipfsGateway: "https://summit-ipfs.polkadot.io",
+    nativeToken: { symbol: "SUM", decimals: 10 },
   },
 };
 
