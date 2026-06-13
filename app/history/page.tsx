@@ -58,6 +58,9 @@ export default function HistoryPage() {
   const handleViewReceipt = async (sale: SaleRecord) => {
     setSelectedSale(sale);
     setShowReceipt(true);
+    // Clear any "Sent to printer." / "Printing failed." toast left over from a
+    // previously viewed record so it doesn't bleed onto this one.
+    setPrintMessage(null);
     const svg = await generateSvgReceipt({
       amount: sale.amount,
       asset: sale.asset,
@@ -110,6 +113,8 @@ export default function HistoryPage() {
         saleId: sale.saleId,
         terminalId: adminPayload?.terminalId,
         merchantId: adminPayload?.merchantId,
+        // Reprint from history must stamp the original sale time, not "now".
+        timestamp: sale.timestamp,
         items: sale.items,
       }));
       setPrintMessage({ tone: "success", text: "Sent to printer." });
@@ -130,7 +135,7 @@ export default function HistoryPage() {
           {/* Header */}
           <header className="flex items-center justify-between px-4 py-4">
             <button
-              onClick={() => { setSelectedSale(null); setShowReceipt(false); setSvgReceipt(null); }}
+              onClick={() => { setSelectedSale(null); setShowReceipt(false); setSvgReceipt(null); setPrintMessage(null); }}
               className="p-2"
             >
               <X className="w-6 h-6 text-white" />

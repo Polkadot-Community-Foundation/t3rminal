@@ -38,9 +38,7 @@ export default function DailyReportsPage() {
   const { readDailyReport } = useBulletin();
   const { generateSvgReceipt } = useReceiptGenerator();
   const {
-    saveDailyReport,
     savePeriodReport,
-    finalizeDailyReport,
     finalizePeriodReport,
     generateReportForSales,
     isFinalizing,
@@ -55,24 +53,43 @@ export default function DailyReportsPage() {
 
   // Which day a per-row finalize is currently running for (null = none / today).
   const [finalizingDate, setFinalizingDate] = useState<string | null>(null);
-  // Date/period pending finalize confirmation (drives the confirm modal).
-  const [confirmFinalizeDate, setConfirmFinalizeDate] = useState<string | null>(null);
+  // Open report (from a past day) pending finalize confirmation.
+  const [confirmFinalizeEntry, setConfirmFinalizeEntry] = useState<DailyReportRecord | null>(null);
   const [confirmFinalizeTarget, setConfirmFinalizeTarget] = useState<PeriodReportArgs | null>(null);
 
-  // Build (update) or finalize (lock) a day's report. Finalize is confirmed via
-  // the modal before this runs, since the contract locks the slot permanently.
-  const runDayAction = async (date: string, finalize: boolean) => {
+  // Finalize (lock) an open report saved on a previous day. The top panel only
+  // handles today's current period, so this reconstructs the period's sale
+  // slice — that day's sales after the last finalized period of the same day —
+  // and locks the matching on-chain slot, so a "#" period (or a plain day) left
+  // open when the day rolled over can still be closed. Re-deriving the slice
+  // (rather than re-reading the whole day) keeps earlier finalized periods from
+  // being double-counted.
+  const runFinalizePastEntry = async (entry: DailyReportRecord) => {
     if (!merchantIdentity) return;
-    setFinalizingDate(date);
+    setFinalizingDate(entry.date);
     try {
       const merchant = normalizeToAssetHubAddress(merchantIdentity);
-      if (finalize) {
-        await finalizeDailyReport(date, merchant);
-      } else {
-        await saveDailyReport(date, merchant);
-      }
+      const day = entry.date.split("#")[0] ?? entry.date;
+      const dayStart = new Date(day + "T00:00:00");
+      const dayEnd = new Date(day + "T23:59:59.999");
+      const daySales = await getSalesForMerchantByDate(merchant, dayStart, dayEnd);
+      const priorClose = reports
+        .filter((r) => r.finalized && (r.date.split("#")[0] ?? r.date) === day)
+        .map((r) => new Date(r.periodClosedAt ?? r.publishedAt).getTime())
+        .reduce((max, t) => (Number.isFinite(t) ? Math.max(max, t) : max), 0);
+      const sales = priorClose > 0
+        ? daySales.filter((s) => new Date(s.timestamp).getTime() > priorClose)
+        : daySales;
+      await finalizePeriodReport({
+        date: day,
+        periodKey: entry.date,
+        merchantAddress: merchant,
+        sales,
+        periodStart: priorClose > 0 ? new Date(priorClose) : dayStart,
+        periodLabel: reportPeriodLabel(entry.date) ?? "Period 1",
+      });
     } catch (err) {
-      console.error(`[DailyReports] ${finalize ? "finalize" : "update"} ${date} failed:`, err);
+      console.error(`[Reports] finalize ${entry.date} failed:`, err);
     } finally {
       setFinalizingDate(null);
     }
@@ -262,7 +279,17 @@ export default function DailyReportsPage() {
   const currentPeriodSales = finalizedAt > 0
     ? todaySales.filter((sale) => new Date(sale.timestamp).getTime() > finalizedAt)
     : todaySales;
-  const nextPeriodNumber = todayReports.length + 1;
+  // Derive the next period number from the highest existing suffix (period 1 is
+  // the bare-date record with no "#"), not the array length — so a deleted or
+  // out-of-order-restored report can never make a new key collide with an
+  // existing on-chain slot.
+  const nextPeriodNumber = todayReports
+    .map((r) => {
+      const suffix = r.date.split("#")[1];
+      return suffix ? Number(suffix) : 1;
+    })
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .reduce((max, n) => Math.max(max, n), 0) + 1;
   const periodKey = openPeriodReport?.date ?? (latestFinalizedReport ? `${today}#${String(nextPeriodNumber).padStart(2, "0")}` : today);
   const periodNumber = periodKey.includes("#") ? Number(periodKey.split("#")[1]) : 1;
   const currentPeriod = merchantIdentity
@@ -503,10 +530,10 @@ export default function DailyReportsPage() {
                     <span>Open report</span>
                   </button>
 
-                  {!entry.finalized && entry.date !== todayString() && !entry.date.includes("#") && (
+                  {!entry.finalized && (entry.date.split("#")[0] ?? entry.date) !== todayString() && (
                     <button
                       data-testid={`report-finalize-${index}`}
-                      onClick={() => setConfirmFinalizeDate(entry.date)}
+                      onClick={() => setConfirmFinalizeEntry(entry)}
                       disabled={!merchantIdentity || isFinalizing}
                       className="mt-2 w-full bg-amber-500 hover:bg-amber-400 text-black py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
                     >
@@ -568,8 +595,8 @@ export default function DailyReportsPage() {
         </div>
       )}
 
-      {/* Finalize confirmation modal */}
-      {confirmFinalizeDate && (
+      {/* Finalize confirmation modal — open report from a previous day */}
+      {confirmFinalizeEntry && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-neutral-900 rounded-2xl max-w-sm w-full p-6 space-y-4">
             <div className="flex items-center gap-2">
@@ -577,13 +604,17 @@ export default function DailyReportsPage() {
               <h3 className="text-white font-medium">Run Z report?</h3>
             </div>
             <p className="text-neutral-400 text-sm">
-              This saves a final Z report and closes <span className="text-white">{confirmFinalizeDate}</span>.
-              This day can no longer be updated.
+              This saves a final Z report and closes{" "}
+              <span className="text-white">
+                {reportDisplayDate(confirmFinalizeEntry.date)}
+                {reportPeriodLabel(confirmFinalizeEntry.date) ? ` · ${reportPeriodLabel(confirmFinalizeEntry.date)}` : ""}
+              </span>.
+              This period can no longer be updated.
             </p>
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setConfirmFinalizeDate(null)}
+                onClick={() => setConfirmFinalizeEntry(null)}
                 disabled={isFinalizing}
                 className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-4 rounded-xl transition disabled:opacity-40"
               >
@@ -593,15 +624,15 @@ export default function DailyReportsPage() {
                 type="button"
                 data-testid="btn-finalize-confirm"
                 onClick={() => {
-                  const date = confirmFinalizeDate;
-                  setConfirmFinalizeDate(null);
-                  void runDayAction(date, true);
+                  const entry = confirmFinalizeEntry;
+                  setConfirmFinalizeEntry(null);
+                  void runFinalizePastEntry(entry);
                 }}
                 disabled={isFinalizing}
                 className="flex-1 bg-amber-500 hover:bg-amber-400 text-black py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
               >
                 <Lock className="w-4 h-4" />
-                <span>Close day</span>
+                <span>Close period</span>
               </button>
             </div>
           </div>
