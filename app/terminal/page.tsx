@@ -32,6 +32,7 @@ import {
   type CoinagePaymentResult,
 } from "@/lib/payments/coinage";
 import { isHostPrinterAvailable, printHostDocument } from "@/lib/host/printing";
+import { publishNfcPaymentDeeplink, stopNfcEmitting } from "@/lib/host/nfc";
 import { buildCustomerReceiptPrintDocument } from "@/lib/receipts/thermal-print";
 import { businessProfileFromAdminPayload } from "@/lib/config/business";
 
@@ -417,6 +418,28 @@ function TerminalPageInner() {
       (useCoins && (coinage.status === "claiming" || coinage.status === "paid"));
     if (paymentIncoming) setShowCancelModal(false);
   }, [coinage.status, partial, paymentReceived, useCoins]);
+
+  // Mirror the on-screen payment QR onto the host NFC tag (HCE) when the host
+  // exposes one, so a customer can tap-to-pay instead of scanning. Same deeplink
+  // as the QR (payment only — never the receipt). Emits only while the QR is
+  // actually presented; cleared the moment a payment starts arriving, the sale
+  // ends, the deeplink changes, or we unmount. No-ops when the host has no NFC.
+  const paymentQrLive =
+    saleInProgress &&
+    !!displayQrValue &&
+    !paymentReceived &&
+    !partial &&
+    !(useCoins && (coinage.status === "claiming" || coinage.status === "paid"));
+
+  useEffect(() => {
+    if (!paymentQrLive || !displayQrValue) return;
+    void publishNfcPaymentDeeplink(displayQrValue).catch((err) => {
+      console.warn("[NFC] payment deeplink publish failed:", err);
+    });
+    return () => {
+      void stopNfcEmitting();
+    };
+  }, [paymentQrLive, displayQrValue]);
 
   const handleGenerateQR = () => {
     const amount = calculator.getNumericResult();
