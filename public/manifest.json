@@ -58,8 +58,8 @@
     {
       "name": "Start Terminal",
       "short_name": "Terminal",
-      "description": "Open the merchant payment terminal",
-      "url": "/terminal",
+      "description": "Open the merchant item list",
+      "url": "/items",
       "icons": [
         {
           "src": "/icon-192x192.png",
