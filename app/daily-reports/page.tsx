@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
-  RefreshCw,
   Loader2,
   FileText,
   ExternalLink,
@@ -12,42 +11,53 @@ import {
   Clock,
   X,
   Download,
-  FileDown,
   Save,
   Lock,
+  Printer,
 } from "lucide-react";
 import { BottomNav } from "@/components/bottom-nav";
 import {
   getAllDailyReports,
-  getDailyReportByDate,
   getSalesForMerchantByDate,
 } from "@/lib/storage/database";
 import { normalizeToAssetHubAddress } from "@/lib/utils/address";
 import type { SaleRecord } from "@/lib/storage/types";
 import { onStorageChange } from "@/lib/storage/host-storage";
 import { useBulletin, type DailyReport, type DailyReportTransaction } from "@/lib/hooks/use-bulletin";
-import { useDailyReport } from "@/lib/hooks/use-daily-report";
+import { useDailyReport, type PeriodReportArgs } from "@/lib/hooks/use-daily-report";
 import { useReceiptGenerator } from "@/lib/hooks/use-receipt-generator";
 import { useAccount } from "@/lib/web3";
 import { useAdminQrPayload } from "@/lib/config/admin-qr";
 import { useAssetSymbol } from "@/lib/utils/asset-metadata";
 import type { DailyReportRecord } from "@/lib/storage/types";
+import { isHostPrinterAvailable, printHostDocument, type PrintDocumentKind } from "@/lib/host/printing";
+import { buildReportPrintDocument } from "@/lib/receipts/thermal-print";
 
 export default function DailyReportsPage() {
   const symbol = useAssetSymbol();
   const { readDailyReport } = useBulletin();
   const { generateSvgReceipt } = useReceiptGenerator();
-  const { saveDailyReport, finalizeDailyReport, isFinalizing, phaseLabel, error: reportActionError } = useDailyReport();
+  const {
+    saveDailyReport,
+    savePeriodReport,
+    finalizeDailyReport,
+    finalizePeriodReport,
+    generateReportForSales,
+    isFinalizing,
+    phaseLabel,
+    error: reportActionError,
+  } = useDailyReport();
   const { account } = useAccount();
   const adminPayload = useAdminQrPayload();
-  // Match `useSalesHistory` — admin-configured payout address wins so the
-  // export pulls sales saved by the terminal under that identity.
+  // Match `useSalesHistory` — admin-configured payout address wins so reports
+  // use the sales saved by the terminal under that identity.
   const merchantIdentity = adminPayload?.receivingAddress ?? account?.address;
 
   // Which day a per-row finalize is currently running for (null = none / today).
   const [finalizingDate, setFinalizingDate] = useState<string | null>(null);
-  // Date pending finalize confirmation (drives the confirm modal).
+  // Date/period pending finalize confirmation (drives the confirm modal).
   const [confirmFinalizeDate, setConfirmFinalizeDate] = useState<string | null>(null);
+  const [confirmFinalizeTarget, setConfirmFinalizeTarget] = useState<PeriodReportArgs | null>(null);
 
   // Build (update) or finalize (lock) a day's report. Finalize is confirmed via
   // the modal before this runs, since the contract locks the slot permanently.
@@ -68,6 +78,37 @@ export default function DailyReportsPage() {
     }
   };
 
+  const runPeriodAction = async (args: PeriodReportArgs, finalize: boolean) => {
+    setFinalizingDate(args.periodKey);
+    try {
+      if (finalize) {
+        await finalizePeriodReport(args);
+      } else {
+        await savePeriodReport(args);
+      }
+    } catch (err) {
+      console.error(`[Reports] ${finalize ? "finalize" : "update"} ${args.periodKey} failed:`, err);
+    } finally {
+      setFinalizingDate(null);
+    }
+  };
+
+  const handlePrintCurrentPeriod = async (args: PeriodReportArgs) => {
+    if (printingReportKind) return;
+    setPrintingReportKind("XReport");
+    setPrintMessage(null);
+    try {
+      const report = await generateReportForSales(args);
+      await printHostDocument(buildReportPrintDocument(report, "XReport"));
+      setPrintMessage({ tone: "success", text: "Sent to printer." });
+    } catch (err) {
+      console.error("[Printer] Failed to print current period:", err);
+      setPrintMessage({ tone: "error", text: "Printing failed. Check the printer and try again." });
+    } finally {
+      setPrintingReportKind(null);
+    }
+  };
+
   const [selectedReport, setSelectedReport] = useState<DailyReport | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedCid, setSelectedCid] = useState<string | null>(null);
@@ -78,15 +119,47 @@ export default function DailyReportsPage() {
   const [isGeneratingReceipt, setIsGeneratingReceipt] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [printerAvailable, setPrinterAvailable] = useState(false);
+  const [printingReportKind, setPrintingReportKind] = useState<Extract<PrintDocumentKind, "XReport" | "ZReport"> | null>(null);
+  const [printMessage, setPrintMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
   // Load reports from host storage - auto-updates on changes
   const [reports, setReports] = useState<DailyReportRecord[]>([]);
+  const [todaySales, setTodaySales] = useState<SaleRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const load = () => getAllDailyReports().then((r) => { setReports(r); setIsLoading(false); });
     load();
     return onStorageChange("dailyReports", load);
+  }, []);
+
+  useEffect(() => {
+    if (!merchantIdentity) {
+      setTodaySales([]);
+      return;
+    }
+
+    const merchant = normalizeToAssetHubAddress(merchantIdentity);
+    const load = () => {
+      const today = todayString();
+      const dayStart = new Date(today + "T00:00:00");
+      const dayEnd = new Date(today + "T23:59:59.999");
+      void getSalesForMerchantByDate(merchant, dayStart, dayEnd).then(setTodaySales);
+    };
+
+    load();
+    return onStorageChange("sales", load);
+  }, [merchantIdentity]);
+
+  useEffect(() => {
+    let mounted = true;
+    isHostPrinterAvailable().then((available) => {
+      if (mounted) setPrinterAvailable(available);
+    });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // View report from IPFS
@@ -159,97 +232,55 @@ export default function DailyReportsPage() {
     URL.revokeObjectURL(url);
   };
 
-  // ── Export range modal state ──────────────────────────────────
-  const [exportOpen, setExportOpen] = useState(false);
-  const [exportRange, setExportRange] = useState<"today" | "last-3" | "custom">("today");
-  const [exportFrom, setExportFrom] = useState(todayString());
-  const [exportTo, setExportTo] = useState(todayString());
-  const [exportRunning, setExportRunning] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const handlePrintReport = async () => {
+    if (!selectedReport || printingReportKind) return;
 
-  /**
-   * Build a list of YYYY-MM-DD strings for the selected range. Today is
-   * always the last entry — we walk backwards so the iteration order
-   * matches what the merchant reads on receipts (most recent first).
-   */
-  const computeExportDates = (): string[] => {
-    if (exportRange === "today") return [todayString()];
-    if (exportRange === "last-3") {
-      const today = new Date();
-      return Array.from({ length: 3 }, (_, i) => {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
-        return formatYmd(d);
-      }).reverse();
-    }
-    // custom — inclusive range, capped to a sane upper bound so we don't
-    // accidentally fetch a year of bulletin data on a single click.
-    return enumerateDateRange(exportFrom, exportTo).slice(0, 92);
-  };
-
-  /**
-   * Pull one day's transactions. Today is the only date that lives in
-   * `localStorage` as raw `SaleRecord`s — every other day is read from
-   * Bulletin via the CID we stashed when finalize() ran. If a past day
-   * was never finalized we fall back to whatever sales we still have
-   * locally (some may still be in IndexedDB if the merchant hasn't
-   * cleared them).
-   */
-  const fetchDayRows = async (date: string, merchant: string): Promise<ExportRow[]> => {
-    const today = todayString();
-    if (date === today) {
-      const dayStart = new Date(date + "T00:00:00");
-      const dayEnd = new Date(date + "T23:59:59.999");
-      const sales = await getSalesForMerchantByDate(merchant, dayStart, dayEnd);
-      return sales.flatMap(saleToExportRow);
-    }
-    // Past day: prefer finalized → bulletin; fall back to local if absent.
-    const finalized = await getDailyReportByDate(date);
-    if (finalized?.cid) {
-      try {
-        const report = await readDailyReport(finalized.cid);
-        return report.transactions.flatMap(txToExportRow);
-      } catch (err) {
-        console.warn(`[DailyReports] Bulletin fetch failed for ${date}, falling back to local:`, err);
-      }
-    }
-    const dayStart = new Date(date + "T00:00:00");
-    const dayEnd = new Date(date + "T23:59:59.999");
-    const sales = await getSalesForMerchantByDate(merchant, dayStart, dayEnd);
-    return sales.flatMap(saleToExportRow);
-  };
-
-  const handleRunExport = async () => {
-    if (!merchantIdentity) return;
-    setExportError(null);
-    setExportRunning(true);
+    const kind = selectedReport.dayFinalized ? "ZReport" : "XReport";
+    setPrintingReportKind(kind);
+    setPrintMessage(null);
     try {
-      const merchant = normalizeToAssetHubAddress(merchantIdentity);
-      const dates = computeExportDates();
-      if (dates.length === 0) {
-        setExportError("Empty date range — pick at least one day.");
-        return;
-      }
-      const allRows: ExportRow[] = [];
-      for (const date of dates) {
-        const rows = await fetchDayRows(date, merchant);
-        allRows.push(...rows);
-      }
-      const tag =
-        exportRange === "today"
-          ? `${todayString()}-unfinalized`
-          : exportRange === "last-3"
-            ? `last-3-days-${todayString()}`
-            : `${exportFrom}_to_${exportTo}`;
-      downloadExportRows(allRows, `daily-report-${tag}.csv`);
-      setExportOpen(false);
+      await printHostDocument(buildReportPrintDocument(selectedReport, kind));
+      setPrintMessage({ tone: "success", text: "Sent to printer." });
     } catch (err) {
-      console.error("[DailyReports] Export failed:", err);
-      setExportError(err instanceof Error ? err.message : String(err));
+      console.error("[Printer] Failed to print report:", err);
+      setPrintMessage({ tone: "error", text: "Printing failed. Check the printer and try again." });
     } finally {
-      setExportRunning(false);
+      setPrintingReportKind(null);
     }
   };
+
+  const today = todayString();
+  const todayReports = reports.filter((r) => r.date === today || r.date.startsWith(`${today}#`));
+  const latestFinalizedReport = todayReports
+    .filter((r) => r.finalized)
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())[0];
+  const openPeriodReport = todayReports
+    .filter((r) => !r.finalized && r.date.includes("#"))
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())[0];
+  const finalizedAtSource = latestFinalizedReport?.periodClosedAt ?? latestFinalizedReport?.publishedAt;
+  const finalizedAt = finalizedAtSource ? new Date(finalizedAtSource).getTime() : 0;
+  const currentPeriodSales = finalizedAt > 0
+    ? todaySales.filter((sale) => new Date(sale.timestamp).getTime() > finalizedAt)
+    : todaySales;
+  const nextPeriodNumber = todayReports.length + 1;
+  const periodKey = openPeriodReport?.date ?? (latestFinalizedReport ? `${today}#${String(nextPeriodNumber).padStart(2, "0")}` : today);
+  const periodNumber = periodKey.includes("#") ? Number(periodKey.split("#")[1]) : 1;
+  const currentPeriod = merchantIdentity
+    ? {
+        date: today,
+        periodKey,
+        merchantAddress: normalizeToAssetHubAddress(merchantIdentity),
+        sales: currentPeriodSales,
+        periodStart: finalizedAt > 0 ? new Date(finalizedAt) : new Date(today + "T00:00:00"),
+        periodLabel: Number.isFinite(periodNumber) ? `Period ${periodNumber}` : "Current period",
+      } satisfies PeriodReportArgs
+    : null;
+  const currentPeriodTotal = currentPeriodSales.reduce((sum, sale) => {
+    const value = Number(sale.amount);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+  const currentPeriodAsset = currentPeriodSales[0]?.asset ?? symbol;
+  const hasCurrentPeriodRecords = currentPeriodSales.length > 0;
 
   // Download report as CSV file
   const handleDownloadCsv = () => {
@@ -290,8 +321,8 @@ export default function DailyReportsPage() {
 
 
   return (
-    <div className="h-screen bg-black flex flex-col overflow-hidden">
-      <div className="flex-1 min-h-0 flex flex-col max-w-md mx-auto w-full">
+    <div className="min-h-dvh bg-black flex flex-col">
+      <div className="flex-1 flex flex-col max-w-md mx-auto w-full pb-24">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-4">
           <Link href="/history" className="p-2">
@@ -299,79 +330,104 @@ export default function DailyReportsPage() {
           </Link>
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-white" />
-            <span data-testid="reports-header" className="text-white font-medium">Daily Reports</span>
+            <span data-testid="reports-header" className="text-white font-medium">Reports</span>
           </div>
           <div className="w-10" />
         </header>
 
-        {/* Stats */}
-        <div className="px-6 py-3">
-          <div className="bg-neutral-900 rounded-lg p-4">
-            <p className="text-neutral-400 text-xs mb-1">Total Reports</p>
-            <p data-testid="reports-count" className="text-white text-2xl font-semibold">{reports?.length ?? 0}</p>
-          </div>
-        </div>
+        <div className="px-6 py-3 space-y-4">
+          <section className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-neutral-400 text-xs mb-1">Current period</p>
+                <h2 className="text-white text-lg font-semibold">{currentPeriod?.periodLabel ?? "Not configured"}</h2>
+              </div>
+              <span className={`text-xs px-2 py-1 rounded ${hasCurrentPeriodRecords ? "bg-amber-500/20 text-amber-300" : "bg-neutral-800 text-neutral-400"}`}>
+                {hasCurrentPeriodRecords ? "Open" : "Empty"}
+              </span>
+            </div>
 
-        {/* Today's report actions */}
-        {(() => {
-          const today = todayString();
-          const todayReport = reports.find((r) => r.date === today);
-          const todayFinalized = !!todayReport?.finalized;
-          return (
-            <div className="px-6 py-2 space-y-2">
-              {todayFinalized ? (
-                <div className="bg-green-900/30 border border-green-800 rounded-xl p-3 flex items-center justify-center gap-2">
-                  <Lock className="w-4 h-4 text-green-400" />
-                  <span className="text-green-400 text-sm">Today is finalized</span>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    data-testid="btn-update-report"
-                    onClick={() => runDayAction(today, false)}
-                    disabled={!merchantIdentity || isFinalizing}
-                    className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition border border-neutral-700 disabled:opacity-40"
-                  >
-                    {isFinalizing && finalizingDate === today ? (
-                      <><Loader2 className="w-5 h-5 animate-spin" /><span className="truncate">{phaseLabel || "Saving…"}</span></>
-                    ) : (
-                      <><Save className="w-5 h-5 shrink-0" /><span>Update</span></>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="btn-finalize-day"
-                    onClick={() => setConfirmFinalizeDate(today)}
-                    disabled={!merchantIdentity || isFinalizing}
-                    className="w-full bg-green-600 hover:bg-green-500 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
-                  >
-                    <Lock className="w-5 h-5 shrink-0" />
-                    <span>Finalize</span>
-                  </button>
-                </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-neutral-500 text-xs">Records</p>
+                <p className="text-white text-2xl font-semibold">{currentPeriodSales.length}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-neutral-500 text-xs">Total</p>
+                <p className="text-white text-2xl font-semibold">
+                  {currentPeriodTotal.toFixed(2)} <span className="text-sm text-neutral-400">{currentPeriodAsset}</span>
+                </p>
+              </div>
+            </div>
+
+            <div className={`grid gap-2 ${printerAvailable ? "grid-cols-2" : "grid-cols-1"}`}>
+              {printerAvailable && (
+                <button
+                  type="button"
+                  onClick={() => currentPeriod && handlePrintCurrentPeriod(currentPeriod)}
+                  disabled={!currentPeriod || !hasCurrentPeriodRecords || isFinalizing || printingReportKind !== null}
+                  className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition border border-neutral-700 disabled:opacity-40"
+                >
+                  {printingReportKind === "XReport" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                  <span>Print X</span>
+                </button>
               )}
               <button
                 type="button"
-                onClick={() => setExportOpen(true)}
-                disabled={!merchantIdentity}
-                className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition border border-neutral-700 disabled:opacity-40"
+                onClick={() => currentPeriod && runPeriodAction(currentPeriod, false)}
+                disabled={!currentPeriod || !hasCurrentPeriodRecords || isFinalizing}
+                className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition border border-neutral-700 disabled:opacity-40"
               >
-                <FileDown className="w-5 h-5" />
-                <span>Export sales (CSV)</span>
+                {currentPeriod && isFinalizing && finalizingDate === currentPeriod.periodKey ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                <span>Save X</span>
               </button>
+            </div>
+          </section>
+
+          <section className="bg-neutral-950 border border-neutral-800 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-neutral-400 text-xs mb-1">Z report</p>
+                <p className="text-white font-medium">Close current period</p>
+              </div>
+              <Lock className="w-5 h-5 text-amber-300" />
+            </div>
+            <button
+              type="button"
+              onClick={() => currentPeriod && setConfirmFinalizeTarget(currentPeriod)}
+              disabled={!currentPeriod || !hasCurrentPeriodRecords || isFinalizing}
+              className="w-full bg-amber-500 hover:bg-amber-400 text-black py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
+            >
+              <Lock className="w-4 h-4" />
+              <span>Run Z</span>
+            </button>
+          </section>
+
+          <section className="space-y-2">
               {reportActionError && (
                 <div className="bg-red-900/30 border border-red-800 rounded-lg p-3 text-red-400 text-sm">
                   {reportActionError}
                 </div>
               )}
-            </div>
-          );
-        })()}
+              {printMessage && (
+                <div className={`rounded-lg border p-3 text-sm ${
+                  printMessage.tone === "success"
+                    ? "bg-green-900/30 border-green-800 text-green-400"
+                    : "bg-red-900/30 border-red-800 text-red-400"
+                }`}>
+                  {printMessage.text}
+                </div>
+              )}
+          </section>
+        </div>
 
         {/* Reports List */}
-        <main className="flex-1 min-h-0 px-6 py-4 overflow-hidden flex flex-col">
-          <h3 className="text-white font-medium mb-4">Saved Daily Reports</h3>
+        <main className="px-6 py-4">
+          <h3 className="text-white font-medium mb-4">Report history</h3>
 
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-12">
@@ -381,13 +437,13 @@ export default function DailyReportsPage() {
           ) : reports.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12">
               <FileText className="w-12 h-12 text-neutral-700 mb-4" />
-              <p data-testid="reports-empty" className="text-neutral-500 text-sm">No daily reports yet</p>
+              <p data-testid="reports-empty" className="text-neutral-500 text-sm">No reports yet</p>
               <p className="text-neutral-600 text-xs mt-1">
-                Use “Update report” or “Finalize day” to create one
+                Save an X report or run a Z report to create one
               </p>
             </div>
           ) : (
-            <div className="space-y-3 overflow-y-auto flex-1 pb-4">
+            <div className="space-y-3">
               {reports.map((entry, index) => (
                 <div
                   key={`${entry.date}-${index}`}
@@ -396,16 +452,21 @@ export default function DailyReportsPage() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-neutral-400" />
-                      <span className="text-white font-medium">{entry.date}</span>
+                      <div>
+                        <span className="text-white font-medium">{reportDisplayDate(entry.date)}</span>
+                        {reportPeriodLabel(entry.date) ? (
+                          <p className="text-xs text-neutral-500">{reportPeriodLabel(entry.date)}</p>
+                        ) : null}
+                      </div>
                     </div>
                     {entry.finalized ? (
                       <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400 flex items-center gap-1">
                         <Lock className="w-3 h-3" />
-                        Finalized
+                        Z report
                       </span>
                     ) : (
                       <span className="text-xs px-2 py-1 rounded bg-yellow-500/20 text-yellow-400">
-                        Draft
+                        X report
                       </span>
                     )}
                   </div>
@@ -418,7 +479,7 @@ export default function DailyReportsPage() {
                     <div className="flex justify-between items-center">
                       <span className="text-neutral-500 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        Saved
+                        {entry.finalized ? "Closed" : "Saved"}
                       </span>
                       <span className="text-neutral-300">
                         {new Date(entry.publishedAt).toLocaleString("en-US", {
@@ -432,7 +493,6 @@ export default function DailyReportsPage() {
                     </div>
                   </div>
 
-                  {/* View Details Button */}
                   <button
                     data-testid={`report-view-${index}`}
                     onClick={() => handleViewReport(entry)}
@@ -440,23 +500,20 @@ export default function DailyReportsPage() {
                     className="mt-4 w-full bg-neutral-800 hover:bg-neutral-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition"
                   >
                     <ExternalLink className="w-4 h-4" />
-                    <span>View Details</span>
+                    <span>Open report</span>
                   </button>
 
-                  {/* Finalize a past, not-yet-finalized day: re-packages that
-                      day's txs and locks it. Today is finalized from the
-                      buttons at the top, so it's excluded here. */}
-                  {!entry.finalized && entry.date !== todayString() && (
+                  {!entry.finalized && entry.date !== todayString() && !entry.date.includes("#") && (
                     <button
                       data-testid={`report-finalize-${index}`}
                       onClick={() => setConfirmFinalizeDate(entry.date)}
                       disabled={!merchantIdentity || isFinalizing}
-                      className="mt-2 w-full bg-green-600 hover:bg-green-500 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
+                      className="mt-2 w-full bg-amber-500 hover:bg-amber-400 text-black py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
                     >
                       {isFinalizing && finalizingDate === entry.date ? (
                         <><Loader2 className="w-4 h-4 animate-spin" /><span>{phaseLabel || "Finalizing…"}</span></>
                       ) : (
-                        <><Lock className="w-4 h-4" /><span>Finalize day</span></>
+                        <><Lock className="w-4 h-4" /><span>Run Z report</span></>
                       )}
                     </button>
                   )}
@@ -467,19 +524,61 @@ export default function DailyReportsPage() {
         </main>
       </div>
 
-      <BottomNav />
+      <div className="fixed inset-x-0 bottom-0 z-40">
+        <BottomNav />
+      </div>
+
+      {/* Period finalize confirmation modal */}
+      {confirmFinalizeTarget && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-neutral-900 rounded-2xl max-w-sm w-full p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Lock className="w-5 h-5 text-amber-300" />
+              <h3 className="text-white font-medium">Run Z report?</h3>
+            </div>
+            <p className="text-neutral-400 text-sm">
+              This saves a final Z report and closes <span className="text-white">{confirmFinalizeTarget.periodLabel ?? confirmFinalizeTarget.periodKey}</span>.
+              This period can no longer be updated. New sales will start another period.
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmFinalizeTarget(null)}
+                disabled={isFinalizing}
+                className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-4 rounded-xl transition disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="btn-finalize-period-confirm"
+                onClick={() => {
+                  const target = confirmFinalizeTarget;
+                  setConfirmFinalizeTarget(null);
+                  void runPeriodAction(target, true);
+                }}
+                disabled={isFinalizing}
+                className="flex-1 bg-amber-500 hover:bg-amber-400 text-black py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Close period</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Finalize confirmation modal */}
       {confirmFinalizeDate && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-neutral-900 rounded-2xl max-w-sm w-full p-6 space-y-4">
             <div className="flex items-center gap-2">
-              <Lock className="w-5 h-5 text-green-400" />
-              <h3 className="text-white font-medium">Finalize day?</h3>
+              <Lock className="w-5 h-5 text-amber-300" />
+              <h3 className="text-white font-medium">Run Z report?</h3>
             </div>
             <p className="text-neutral-400 text-sm">
-              This locks <span className="text-white">{confirmFinalizeDate}</span>.
-              Once finalized, the day can no longer be updated or overwritten.
+              This saves a final Z report and closes <span className="text-white">{confirmFinalizeDate}</span>.
+              This day can no longer be updated.
             </p>
             <div className="flex gap-3 pt-2">
               <button
@@ -499,10 +598,10 @@ export default function DailyReportsPage() {
                   void runDayAction(date, true);
                 }}
                 disabled={isFinalizing}
-                className="flex-1 bg-green-600 hover:bg-green-500 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
+                className="flex-1 bg-amber-500 hover:bg-amber-400 text-black py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
               >
                 <Lock className="w-4 h-4" />
-                <span>Finalize</span>
+                <span>Close day</span>
               </button>
             </div>
           </div>
@@ -548,7 +647,7 @@ export default function DailyReportsPage() {
                   {/* Open / download */}
                   <div className="bg-neutral-800 rounded-lg p-4 space-y-3">
                     <h4 className="text-white font-medium text-sm">View report</h4>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={handleDownloadReport}
                         disabled={!selectedReport}
@@ -565,7 +664,30 @@ export default function DailyReportsPage() {
                         <Download className="w-4 h-4" />
                         <span>CSV</span>
                       </button>
+                      {printerAvailable && (
+                        <button
+                          onClick={handlePrintReport}
+                          disabled={!selectedReport || printingReportKind !== null}
+                          className="col-span-2 flex items-center justify-center gap-2 text-white bg-neutral-700 hover:bg-neutral-600 py-2 px-3 rounded-lg transition text-sm disabled:opacity-50"
+                        >
+                          {printingReportKind ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Printer className="w-4 h-4" />
+                          )}
+                          <span>{selectedReport?.dayFinalized ? "Print Z" : "Print X"}</span>
+                        </button>
+                      )}
                     </div>
+                    {printMessage && (
+                      <div className={`rounded-lg border px-3 py-2 text-xs ${
+                        printMessage.tone === "success"
+                          ? "bg-green-900/30 border-green-800 text-green-400"
+                          : "bg-red-900/30 border-red-800 text-red-400"
+                      }`}>
+                        {printMessage.text}
+                      </div>
+                    )}
                   </div>
 
                   {/* Selected Report Display */}
@@ -654,109 +776,6 @@ export default function DailyReportsPage() {
         </div>
       )}
 
-      {/* Export Range Modal */}
-      {exportOpen && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[55] p-4">
-          <div className="bg-neutral-900 rounded-2xl max-w-md w-full overflow-y-auto">
-            <div className="flex items-center justify-between p-4 border-b border-neutral-800">
-              <div className="flex items-center gap-2">
-                <FileDown className="w-4 h-4 text-white" />
-                <h3 className="text-white font-medium">Export sales (CSV)</h3>
-              </div>
-              <button
-                onClick={() => setExportOpen(false)}
-                className="p-2 hover:bg-neutral-800 rounded-lg transition"
-                aria-label="Close"
-              >
-                <X className="w-5 h-5 text-neutral-400" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-4">
-              <p className="text-xs text-neutral-400">
-                Today is read straight from local storage. Past days are pulled
-                from Bulletin via the CID saved when you finalized the day; if a
-                past day was never finalized, we fall back to whatever sales are
-                still in local storage for that date.
-              </p>
-
-              {/* Range selector */}
-              <div className="grid grid-cols-3 gap-2">
-                {(["today", "last-3", "custom"] as const).map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => setExportRange(opt)}
-                    className={`py-2 px-3 rounded-lg text-xs font-medium transition ${
-                      exportRange === opt
-                        ? "bg-white text-black"
-                        : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
-                    }`}
-                  >
-                    {opt === "today" ? "Today" : opt === "last-3" ? "Last 3 days" : "Custom"}
-                  </button>
-                ))}
-              </div>
-
-              {/* Custom date inputs */}
-              {exportRange === "custom" && (
-                <div className="space-y-2">
-                  <label className="block text-xs text-neutral-500">
-                    From
-                    <input
-                      type="date"
-                      value={exportFrom}
-                      max={exportTo}
-                      onChange={(e) => setExportFrom(e.target.value)}
-                      className="w-full mt-1 bg-neutral-800 text-white rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-neutral-600"
-                    />
-                  </label>
-                  <label className="block text-xs text-neutral-500">
-                    To
-                    <input
-                      type="date"
-                      value={exportTo}
-                      min={exportFrom}
-                      max={todayString()}
-                      onChange={(e) => setExportTo(e.target.value)}
-                      className="w-full mt-1 bg-neutral-800 text-white rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-neutral-600"
-                    />
-                  </label>
-                  <p className="text-[10px] text-neutral-600">
-                    Up to 92 days per export.
-                  </p>
-                </div>
-              )}
-
-              {exportError && (
-                <div className="bg-red-900/30 border border-red-800 rounded-lg p-2 text-red-400 text-xs">
-                  {exportError}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={handleRunExport}
-                disabled={exportRunning}
-                className="w-full bg-white text-black py-3 rounded-xl font-medium flex items-center justify-center gap-2 disabled:opacity-40"
-              >
-                {exportRunning ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Exporting…
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4" />
-                    Export
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Receipt Modal */}
       {selectedTransaction && svgReceipt && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4">
@@ -821,84 +840,6 @@ export default function DailyReportsPage() {
   );
 }
 
-/* ── Export helpers ───────────────────────────────────────────── */
-
-/**
- * One CSV row per ITEM, not per sale. A sale with three line items emits
- * three rows; a direct-amount sale (no items) emits a single row with the
- * sale total as a synthetic line. Sale-level columns (Sale ID, timestamp,
- * merchant, etc.) repeat across all of that sale's rows so the merchant
- * can group/sum in a spreadsheet.
- */
-interface ExportRow {
-  saleId: string;
-  timestampMs: string;
-  timestampIso: string;
-  status: string;
-  itemName: string;
-  quantity: string;
-  unitPrice: string;
-  lineTotal: string;
-  asset: string;
-  merchant: string;
-  customer: string;
-  txHash: string;
-  blockNumber: string;
-}
-
-interface SaleLike {
-  saleId: string;
-  status: string;
-  saleTotal: string;
-  asset: string;
-  merchant: string;
-  customer: string;
-  txHash: string;
-  blockNumber: string;
-  timestampMs: string;
-  timestampIso: string;
-  items?: ReadonlyArray<{ name: string; quantity: number; unitPrice: string }>;
-}
-
-function saleToSaleLike(s: SaleRecord): SaleLike {
-  return {
-    saleId: s.saleId,
-    status: "Finished",
-    saleTotal: s.amount,
-    asset: s.asset,
-    merchant: s.merchantAddressNormalized ?? s.merchantAddress,
-    customer: s.customerAddressNormalized ?? s.customerAddress,
-    txHash: s.transactionHash ?? "",
-    blockNumber: s.blockNumber?.toString() ?? "0",
-    timestampMs: new Date(s.timestamp).getTime().toString(),
-    timestampIso: new Date(s.timestamp).toISOString(),
-    items: s.items,
-  };
-}
-
-function txToSaleLike(tx: DailyReportTransaction): SaleLike {
-  return {
-    saleId: tx.saleId,
-    status: tx.status,
-    saleTotal: tx.amountFormatted,
-    asset: tx.asset,
-    merchant: tx.originalMerchant || tx.evmMerchant,
-    customer: tx.originalCustomer || tx.evmCustomer,
-    txHash: tx.txHash,
-    blockNumber: tx.blockNumber,
-    timestampMs: tx.timestamp,
-    timestampIso: tx.timestampFormatted,
-    items: tx.items,
-  };
-}
-
-/** Two-decimal product, dot-separated — matches CSV-friendly numeric form. */
-function lineTotalOf(unitPrice: string, quantity: number): string {
-  const n = Number(unitPrice);
-  if (!Number.isFinite(n)) return "";
-  return (n * quantity).toFixed(2);
-}
-
 /**
  * Normalize a stored amount string to two decimals so every numeric column
  * in the export reads consistently ("5.5" → "5.50", "6" → "6.00"). Stored
@@ -908,102 +849,6 @@ function lineTotalOf(unitPrice: string, quantity: number): string {
 function money2(amount: string): string {
   const n = Number(amount);
   return Number.isFinite(n) ? n.toFixed(2) : amount;
-}
-
-function explodeSaleToRows(sale: SaleLike): ExportRow[] {
-  const baseShared = {
-    saleId: sale.saleId,
-    timestampMs: sale.timestampMs,
-    timestampIso: sale.timestampIso,
-    status: sale.status,
-    asset: sale.asset,
-    merchant: sale.merchant,
-    customer: sale.customer,
-    txHash: sale.txHash,
-    blockNumber: sale.blockNumber,
-  };
-
-  if (!sale.items || sale.items.length === 0) {
-    // Direct-amount sale — surface the total as a single synthetic line so
-    // the CSV stays row-per-item without losing rows for amount-only sales.
-    return [{
-      ...baseShared,
-      itemName: "(amount only)",
-      quantity: "1",
-      unitPrice: money2(sale.saleTotal),
-      lineTotal: money2(sale.saleTotal),
-    }];
-  }
-
-  return sale.items.map((item) => ({
-    ...baseShared,
-    itemName: item.name,
-    quantity: item.quantity.toString(),
-    unitPrice: money2(item.unitPrice),
-    lineTotal: lineTotalOf(item.unitPrice, item.quantity),
-  }));
-}
-
-function saleToExportRow(s: SaleRecord): ExportRow[] {
-  return explodeSaleToRows(saleToSaleLike(s));
-}
-
-function txToExportRow(tx: DailyReportTransaction): ExportRow[] {
-  return explodeSaleToRows(txToSaleLike(tx));
-}
-
-function escCsv(val: string | null | undefined): string {
-  if (val === null || val === undefined) return "";
-  const s = String(val);
-  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
-function downloadExportRows(rows: ExportRow[], filename: string): void {
-  const headers = [
-    "Sale ID",
-    "Timestamp",
-    "Timestamp Formatted",
-    "Status",
-    "Item",
-    "Quantity",
-    "Unit Price",
-    "Line Total",
-    "Asset",
-    "Merchant",
-    "Customer",
-    "Tx Hash",
-    "Block Number",
-  ];
-  const csvRows = rows.map((r) =>
-    [
-      r.saleId,
-      r.timestampMs,
-      r.timestampIso,
-      r.status,
-      r.itemName,
-      r.quantity,
-      r.unitPrice,
-      r.lineTotal,
-      r.asset,
-      r.merchant,
-      r.customer,
-      r.txHash,
-      r.blockNumber,
-    ].map(escCsv).join(","),
-  );
-  const csv = [headers.join(","), ...csvRows].join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
 }
 
 /* ── Date helpers ─────────────────────────────────────────────── */
@@ -1016,17 +861,13 @@ function todayString(): string {
   return formatYmd(new Date());
 }
 
-function enumerateDateRange(fromYmd: string, toYmd: string): string[] {
-  const from = new Date(fromYmd + "T00:00:00");
-  const to = new Date(toYmd + "T00:00:00");
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
-    return [];
-  }
-  const out: string[] = [];
-  const cur = new Date(from);
-  while (cur <= to) {
-    out.push(formatYmd(cur));
-    cur.setDate(cur.getDate() + 1);
-  }
-  return out;
+function reportDisplayDate(date: string): string {
+  return date.split("#")[0] ?? date;
+}
+
+function reportPeriodLabel(date: string): string | null {
+  const period = date.split("#")[1];
+  if (!period) return null;
+  const value = Number(period);
+  return Number.isFinite(value) ? `Period ${value}` : period;
 }

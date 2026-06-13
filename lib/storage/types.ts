@@ -131,4 +131,5 @@ export interface DailyReportRecord {
   finalized?: boolean; // Once true, the day is locked (no further overwrites)
   signedBy: string; // Who signed the Bulletin Chain transaction
   publishedAt: Date; // When the report was finalized
+  periodClosedAt?: string; // Last sale timestamp included in a finalized period
 }
