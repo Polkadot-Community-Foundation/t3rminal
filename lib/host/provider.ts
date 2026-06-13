@@ -14,14 +14,14 @@ import { createClient, PolkadotClient } from "polkadot-api"
 import { getWsProvider } from "@polkadot-api/ws-provider"
 
 // Summit People — people-system parachain hosting pallet-coinage and the pUSD
-// foreign asset. Genesis verified live 2026-06-11 (SUMMIT_PLATFORM_PREREQUISITES).
-// Constant name kept (PASEO_*) to avoid touching importers; value is Summit.
+// foreign asset. Genesis per SUMMIT_PLATFORM_PREREQUISITES. Constant name kept
+// (PASEO_*) to avoid touching importers; value is Summit.
 export const PASEO_INDIVIDUALITY_GENESIS =
   "0xbe5238f82c3553bc57ac3be43bef110bd58c49ad0744110814985195ca7d8c4e" as `0x${string}`
 export const PASEO_INDIVIDUALITY_WS = "wss://summit-people-rpc.polkadot.io"
 
-// Summit Asset Hub — Revive contracts (T3rminalBulletinIndex). Genesis verified
-// live 2026-06-11 (SUMMIT_PLATFORM_PREREQUISITES). Constant name kept (PASEO_*)
+// Summit Asset Hub — Revive contracts (T3rminalBulletinIndex). Genesis per
+// SUMMIT_PLATFORM_PREREQUISITES. Constant name kept (PASEO_*)
 // to avoid touching importers; value is Summit. MUST match the genesis baked
 // into the .papi descriptor metadata (regenerate against Summit AH — Diff 5),
 // otherwise PAPI's computed `additionalSigned` diverges and every signed

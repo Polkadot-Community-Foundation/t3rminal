@@ -136,8 +136,8 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     ipfsGateway: "https://previewnet.substrate.dev/ipfs/",
     nativeToken: { symbol: "PAS", decimals: 10 },
   },
-  // Summit network. Endpoints + genesis hashes verified live 2026-06-11
-  // (SUMMIT_PLATFORM_PREREQUISITES). mainChain.genesisHash is load-bearing for
+  // Summit network. Endpoints + genesis hashes per SUMMIT_PLATFORM_PREREQUISITES.
+  // mainChain.genesisHash is load-bearing for
   // the contract deploy (deployBulletinIndex throws if empty); decimals: 10
   // drives the dry-run deposit limit + funding floor. SUM token.
   summit: {
