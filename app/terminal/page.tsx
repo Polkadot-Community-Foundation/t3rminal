@@ -497,7 +497,7 @@ function TerminalPageInner() {
     setIsPrintingReceipt(true);
     setPrintMessage(null);
     try {
-      await printHostDocument(buildCustomerReceiptPrintDocument({
+      const receiptData = {
         amount: formatAmountFromPlanck(paymentReceived.amount, PUSD_DECIMALS),
         asset: getAssetSymbol(),
         merchant: normalizeToAssetHubAddress(receivingAddress),
@@ -514,7 +514,10 @@ function TerminalPageInner() {
         terminalId: adminPayload?.terminalId,
         merchantId: adminPayload?.merchantId,
         items: receiptItems.length > 0 ? receiptItems : undefined,
-      }));
+      };
+      await printHostDocument(
+        buildCustomerReceiptPrintDocument(receiptData, buildReceiptQrValue(receiptData)),
+      );
       setPrintMessage({ tone: "success", text: "Sent to printer." });
     } catch (err) {
       console.error("[Printer] Failed to print receipt:", err);
