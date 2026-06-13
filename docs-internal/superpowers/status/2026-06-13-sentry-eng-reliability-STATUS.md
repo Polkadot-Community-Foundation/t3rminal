@@ -52,7 +52,14 @@
 - **Idempotency enforcement:** tracked in t3rminal-internal#170 (out of scope here).
 - **Matrix alert rules:** team-owned; created post-DSN.
 
-## BLOCKED ON WRITE ACCESS (2026-06-13) — staged, ready to fire
+## UNBLOCKED + SHIPPED TO PR (2026-06-13 ~09:25Z)
+Write access granted (push+maintain). Executed the runbook:
+- Branch pushed; **PR #14 open**: https://github.com/paritytech/t3rminal/pull/14
+- **DSN secret SET** (`NEXT_PUBLIC_SENTRY_DSN`) — `maintain` covered it; preview will build with telemetry ENABLED (sampling 1.0).
+- CI on the PR: Socket Security ✓, CLA ✓; **Deploy Frontend** (pr14- preview) + **E2E Tests** in progress — being watched to terminal state.
+- Next: confirm preview URL + CI green; hands-on live-event scrub smoke against the preview (Sentry now on).
+
+## (historical) BLOCKED ON WRITE ACCESS (2026-06-13) — staged, ready to fire
 `EnderOfWorlds007` (the session's gh/git account) has **read-only** on `paritytech/t3rminal`
 (`push:false, admin:false`; can't set secrets). Ionut is asking maintainers to grant write
 (Saturday — delay expected). Branch is fully committed locally; nothing else is in flight.
