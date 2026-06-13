@@ -18,10 +18,13 @@ interface BottomNavProps {
 export function BottomNav({ locked = false }: BottomNavProps) {
   const pathname = usePathname();
   const lockClass = locked ? "pointer-events-none opacity-40" : "";
+  const currentPath = pathname?.replace(/\/+$/, "") || "/";
 
   const isPayment =
-    pathname === "/" || pathname === "/items" || pathname === "/terminal";
-  const isSettings = pathname?.startsWith("/settings") ?? false;
+    currentPath === "/" || currentPath.startsWith("/items") || currentPath.startsWith("/terminal");
+  const isHistory = currentPath.startsWith("/history");
+  const isReports = currentPath.startsWith("/daily-reports");
+  const isSettings = currentPath.startsWith("/settings");
 
   const tab = (active: boolean) =>
     `flex flex-col items-center gap-0.5 transition ${lockClass} ${
@@ -38,7 +41,7 @@ export function BottomNav({ locked = false }: BottomNavProps) {
         <Link
           href="/history"
           aria-disabled={locked}
-          className={tab(pathname === "/history")}
+          className={tab(isHistory)}
         >
           <History className="w-5 h-5" />
           <span className="text-[10px] font-medium">History</span>
@@ -46,7 +49,7 @@ export function BottomNav({ locked = false }: BottomNavProps) {
         <Link
           href="/daily-reports"
           aria-disabled={locked}
-          className={tab(pathname === "/daily-reports")}
+          className={tab(isReports)}
         >
           <BookOpen className="w-5 h-5" />
           <span className="text-[10px] font-medium">Reports</span>

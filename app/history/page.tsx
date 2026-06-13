@@ -1,23 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { X, History, Search, RefreshCw, ArrowDownLeft, FileText, Download, Loader2, CheckCircle } from "lucide-react";
+import { X, History, Search, RefreshCw, ArrowDownLeft, FileText, Download, Loader2, CheckCircle, Printer } from "lucide-react";
 import { useAccount } from "@/lib/web3";
 import { BottomNav } from "@/components/bottom-nav";
 import { useSalesHistory, type SaleRecord } from "@/lib/storage";
 import { useReceiptGenerator } from "@/lib/hooks/use-receipt-generator";
 import { formatMoney } from "@/lib/utils/format";
 import { useAssetSymbol } from "@/lib/utils/asset-metadata";
+import { isHostPrinterAvailable, printHostDocument } from "@/lib/host/printing";
+import { buildCustomerReceiptPrintDocument } from "@/lib/receipts/thermal-print";
+import { businessProfileFromAdminPayload } from "@/lib/config/business";
+import { useAdminQrPayload } from "@/lib/config/admin-qr";
 
 export default function HistoryPage() {
   const symbol = useAssetSymbol();
   const { account } = useAccount();
+  const adminPayload = useAdminQrPayload();
   const { groupedSales, searchTerm, setSearchTerm, isLoading, isEmpty } = useSalesHistory();
   const { generateSvgReceipt, downloadPdfReceipt } = useReceiptGenerator();
   const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [svgReceipt, setSvgReceipt] = useState<string | null>(null);
+  const [printerAvailable, setPrinterAvailable] = useState(false);
+  const [isPrintingReceipt, setIsPrintingReceipt] = useState(false);
+  const [printMessage, setPrintMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    isHostPrinterAvailable().then((available) => {
+      if (mounted) setPrinterAvailable(available);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Not connected state
   if (!account) {
@@ -40,6 +58,9 @@ export default function HistoryPage() {
   const handleViewReceipt = async (sale: SaleRecord) => {
     setSelectedSale(sale);
     setShowReceipt(true);
+    // Clear any "Sent to printer." / "Printing failed." toast left over from a
+    // previously viewed record so it doesn't bleed onto this one.
+    setPrintMessage(null);
     const svg = await generateSvgReceipt({
       amount: sale.amount,
       asset: sale.asset,
@@ -73,6 +94,38 @@ export default function HistoryPage() {
     });
   };
 
+  const handlePrintReceipt = async (sale: SaleRecord) => {
+    if (isPrintingReceipt) return;
+    setIsPrintingReceipt(true);
+    setPrintMessage(null);
+    try {
+      await printHostDocument(buildCustomerReceiptPrintDocument({
+        amount: sale.amount,
+        asset: sale.asset,
+        merchant: sale.merchantAddressNormalized ?? sale.merchantAddress,
+        business: businessProfileFromAdminPayload(adminPayload),
+        merchantAddress: sale.merchantAddressNormalized ?? sale.merchantAddress,
+        customerAddress: sale.customerAddressNormalized ?? sale.customerAddress,
+        transactionId: sale.transactionHash || "",
+        blockNumber: sale.blockNumber,
+        blockHash: sale.blockHash,
+        assetId: sale.assetId,
+        saleId: sale.saleId,
+        terminalId: adminPayload?.terminalId,
+        merchantId: adminPayload?.merchantId,
+        // Reprint from history must stamp the original sale time, not "now".
+        timestamp: sale.timestamp,
+        items: sale.items,
+      }));
+      setPrintMessage({ tone: "success", text: "Sent to printer." });
+    } catch (err) {
+      console.error("[Printer] Failed to print history record:", err);
+      setPrintMessage({ tone: "error", text: "Printing failed. Check the printer and try again." });
+    } finally {
+      setIsPrintingReceipt(false);
+    }
+  };
+
   // Receipt view — opened directly from the history list (no intermediate
   // details page). Skeleton renders while the SVG generates.
   if (selectedSale && showReceipt) {
@@ -82,18 +135,43 @@ export default function HistoryPage() {
           {/* Header */}
           <header className="flex items-center justify-between px-4 py-4">
             <button
-              onClick={() => { setSelectedSale(null); setShowReceipt(false); setSvgReceipt(null); }}
+              onClick={() => { setSelectedSale(null); setShowReceipt(false); setSvgReceipt(null); setPrintMessage(null); }}
               className="p-2"
             >
               <X className="w-6 h-6 text-white" />
             </button>
             <span className="text-white font-medium">Record #{selectedSale.saleId.slice(-4)}</span>
-            <button onClick={() => handleDownloadReceipt(selectedSale)} className="p-2">
-              <Download className="w-6 h-6 text-white" />
-            </button>
+            <div className="flex items-center gap-1">
+              {printerAvailable && (
+                <button
+                  onClick={() => void handlePrintReceipt(selectedSale)}
+                  disabled={isPrintingReceipt}
+                  className="p-2 disabled:opacity-40"
+                  aria-label="Print record"
+                >
+                  {isPrintingReceipt ? (
+                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  ) : (
+                    <Printer className="w-6 h-6 text-white" />
+                  )}
+                </button>
+              )}
+              <button onClick={() => handleDownloadReceipt(selectedSale)} className="p-2" aria-label="Download record">
+                <Download className="w-6 h-6 text-white" />
+              </button>
+            </div>
           </header>
 
           <main className="flex-1 flex flex-col px-6 py-4 overflow-auto">
+            {printMessage && (
+              <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${
+                printMessage.tone === "success"
+                  ? "bg-green-900/30 border-green-800 text-green-400"
+                  : "bg-red-900/30 border-red-800 text-red-400"
+              }`}>
+                {printMessage.text}
+              </div>
+            )}
             <div className="bg-white rounded-xl p-4 overflow-hidden">
               {svgReceipt ? (
                 <div dangerouslySetInnerHTML={{ __html: svgReceipt }} />
