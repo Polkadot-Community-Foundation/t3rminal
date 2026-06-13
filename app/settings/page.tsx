@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, Store, Shield, Database, Settings as SettingsIcon, Wallet, Coins, CloudDownload, ScrollText } from "lucide-react";
+import { ChevronRight, Store, Shield, Database, Settings as SettingsIcon, Wallet, Coins, CloudDownload, ScrollText, FileDown } from "lucide-react";
 import { BottomNav } from "@/components/bottom-nav";
 
 interface SettingsRow {
@@ -12,6 +12,12 @@ interface SettingsRow {
 }
 
 const SETTINGS_ROWS: SettingsRow[] = [
+  {
+    href: "/settings/export",
+    icon: FileDown,
+    title: "Export sales (CSV)",
+    description: "Download your sales for a chosen date range as a CSV file.",
+  },
   {
     href: "/settings/payment-method",
     icon: Coins,
