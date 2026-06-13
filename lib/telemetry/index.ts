@@ -8,10 +8,13 @@ export { journeyTracker, JourneyTracker } from "./journey-tracker";
 export type { AppJourneyType } from "./journey-tracker";
 export { withSpan, breadcrumb, captureError } from "./sentry-helpers";
 export {
+  recordCoinagePaymentPhase,
   recordPaymentOutcome,
   recordFinalizationLatency,
 } from "./payment-metrics";
 export type {
+  CoinagePaymentPhase,
+  CoinagePaymentPhaseParams,
   PaymentMethodKind,
   PaymentOutcomeParams,
   FinalizationLatencyParams,

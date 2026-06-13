@@ -28,6 +28,27 @@ import { breadcrumb } from "./sentry-helpers";
 
 export type PaymentMethodKind = "voucher" | "coins";
 
+export type CoinagePaymentPhase =
+  | "prepare"
+  | "statement_wait"
+  | "decrypt_match"
+  | "host_topup"
+  | "total";
+
+export interface CoinagePaymentPhaseParams {
+  phase: CoinagePaymentPhase;
+  /** `performance.now()` timestamp from the start of this phase. */
+  startedAt: number;
+  paymentId?: string;
+  amount?: string;
+  hostEnv?: string;
+  coinCount?: number;
+  statementCount?: number;
+  isComplete?: boolean;
+  outcome?: "success" | "failure";
+  reason?: string;
+}
+
 export interface PaymentOutcomeParams {
   outcome: "success" | "failure";
   /** Settings → Payment Method: standard pUSD voucher vs. W3S Coinage. */
@@ -78,6 +99,68 @@ export function recordPaymentOutcome(params: PaymentOutcomeParams): void {
     "payment",
     `payment ${params.outcome}`,
     success ? "info" : "error",
+    attributes,
+  );
+}
+
+/**
+ * Record a W3S Coinage terminal-side phase. This breaks down the long
+ * "waiting for payment" period into QR setup, statement-store delivery,
+ * decrypt/match, and the native host `paymentTopUp(Coins)` call.
+ */
+export function recordCoinagePaymentPhase(
+  params: CoinagePaymentPhaseParams,
+): void {
+  const outcome = params.outcome ?? "success";
+  const latencyMs = Math.round(
+    Math.max(0, performance.now() - params.startedAt),
+  );
+  const attributes: Record<string, string | number | boolean> = {
+    "coinage.phase": params.phase,
+    "coinage.phase_ms": latencyMs,
+  };
+  if (params.paymentId) attributes["coinage.payment_id"] = params.paymentId;
+  if (params.amount) attributes["coinage.amount"] = params.amount;
+  if (params.hostEnv) attributes["coinage.host_env"] = params.hostEnv;
+  if (typeof params.coinCount === "number") {
+    attributes["coinage.coin_count"] = params.coinCount;
+  }
+  if (typeof params.statementCount === "number") {
+    attributes["coinage.statement_count"] = params.statementCount;
+  }
+  if (typeof params.isComplete === "boolean") {
+    attributes["coinage.statement_page_complete"] = params.isComplete;
+  }
+  if (params.reason) attributes["coinage.failure_reason"] = params.reason;
+
+  const startTime = (performance.timeOrigin + params.startedAt) / 1000;
+  const endTime = (performance.timeOrigin + params.startedAt + latencyMs) / 1000;
+  const span = Sentry.startSpanManual(
+    {
+      name: `coinage:${params.phase}`,
+      op: `payment.coinage.${params.phase}`,
+      attributes,
+      startTime,
+    },
+    (s) => s,
+  );
+  Sentry.setMeasurement(
+    `coinage.${params.phase}_ms`,
+    latencyMs,
+    "millisecond",
+    span,
+  );
+  span.setStatus(
+    outcome === "success"
+      ? { code: 1, message: "ok" }
+      : { code: 2, message: params.reason ?? "failure" },
+  );
+  span.end(endTime);
+
+  breadcrumb(
+    "payment.coinage",
+    `coinage ${params.phase} ${outcome}`,
+    outcome === "success" ? "info" : "error",
     attributes,
   );
 }
