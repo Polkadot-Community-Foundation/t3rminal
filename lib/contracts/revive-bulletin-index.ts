@@ -20,14 +20,16 @@ import type { PolkadotSigner } from "polkadot-api";
 // ABI interface for encoding/decoding calldata (no network calls)
 const iface = new ethers.Interface(T3rminalBulletinIndexABI);
 
-// Alice on Paseo — known mapped account for read-only Revive calls.
-// ReviveApi.call requires a mapped origin even for pure view functions.
-const READ_ORIGIN = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+// Read-only Revive calls need a *mapped* origin even for pure view functions,
+// but view functions don't depend on caller identity. Alice (5Grwva…) is not
+// guaranteed mapped on Summit, so use the Summit contract deployer, which is
+// mapped on Summit AH (mapped during the Leg-A deploy).
+const READ_ORIGIN = "5Hn6AMFkiAyGFgWCShqAdXFax87uknHa5YXCZmiabFidohQy";
 
 /**
  * Execute a read-only contract call via ReviveApi.call runtime API.
- * Uses Alice as origin — she's always mapped and view functions
- * don't depend on caller identity.
+ * Uses a known-mapped account as origin — view functions don't depend on
+ * caller identity, only on the origin being mapped.
  */
 async function readContract(
   functionName: string,
