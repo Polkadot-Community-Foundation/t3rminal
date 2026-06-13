@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { X, Loader2, Check, Download, Delete, Share2, Grid3X3 } from "lucide-react";
+import { X, Loader2, Check, Download, Delete, Share2, Grid3X3, Printer } from "lucide-react";
 import { BottomNav } from "@/components/bottom-nav";
 import { useAccount } from "@/lib/web3";
 import { QRCodeSVG } from "qrcode.react";
@@ -31,6 +31,9 @@ import {
   useCoinagePayment,
   type CoinagePaymentResult,
 } from "@/lib/payments/coinage";
+import { isHostPrinterAvailable, printHostDocument } from "@/lib/host/printing";
+import { buildCustomerReceiptPrintDocument } from "@/lib/receipts/thermal-print";
+import { businessProfileFromAdminPayload } from "@/lib/config/business";
 
 const OPERATORS: CalculatorOperator[] = ["+", "-", "×", "÷"];
 const ASSET_ID_STR = PUSD_ASSET_ID.toString();
@@ -75,6 +78,9 @@ function TerminalPageInner() {
   const [svgReceipt, setSvgReceipt] = useState<string | null>(null);
   const [finalAmount, setFinalAmount] = useState<string>("");
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [printerAvailable, setPrinterAvailable] = useState(false);
+  const [isPrintingReceipt, setIsPrintingReceipt] = useState(false);
+  const [printMessage, setPrintMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   // Cart lines stashed by /items "Charge" — flow into the printed receipt.
   const [pendingItems, setPendingItems] = useState<StoredCartLine[]>([]);
 
@@ -82,6 +88,16 @@ function TerminalPageInner() {
   // skips the keypad and jumps straight to the QR screen with that total,
   // and pulls the itemized cart out of sessionStorage so the receipt can
   // render line-by-line later.
+  useEffect(() => {
+    let mounted = true;
+    isHostPrinterAvailable().then((available) => {
+      if (mounted) setPrinterAvailable(available);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   useEffect(() => {
     const amountParam = searchParams.get("amount");
     if (!amountParam || !/^\d+$/.test(amountParam)) return;
@@ -387,6 +403,14 @@ function TerminalPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useCoins, coinage.status]);
 
+  useEffect(() => {
+    const paymentIncoming =
+      paymentReceived ||
+      partial ||
+      (useCoins && (coinage.status === "claiming" || coinage.status === "paid"));
+    if (paymentIncoming) setShowCancelModal(false);
+  }, [coinage.status, partial, paymentReceived, useCoins]);
+
   const handleGenerateQR = () => {
     const amount = calculator.getNumericResult();
     if (!account || !amount || parseFloat(amount) <= 0) {
@@ -452,6 +476,45 @@ function TerminalPageInner() {
       saleId: paymentReceived.saleId,
       items: receiptItems.length > 0 ? receiptItems : undefined,
     });
+  };
+
+  const handlePrintReceipt = async () => {
+    if (!paymentReceived || !receivingAddress || isPrintingReceipt) return;
+
+    const receiptItems: ReceiptItem[] = pendingItems.map((line) => ({
+      name: line.name,
+      quantity: line.quantity,
+      unitPrice: formatAmountFromPlanck(line.pricePlanks, PUSD_DECIMALS),
+    }));
+
+    setIsPrintingReceipt(true);
+    setPrintMessage(null);
+    try {
+      await printHostDocument(buildCustomerReceiptPrintDocument({
+        amount: formatAmountFromPlanck(paymentReceived.amount, PUSD_DECIMALS),
+        asset: getAssetSymbol(),
+        merchant: normalizeToAssetHubAddress(receivingAddress),
+        business: businessProfileFromAdminPayload(adminPayload),
+        merchantAddress: normalizeToAssetHubAddress(receivingAddress),
+        customerAddress: paymentReceived.from === "anonymous"
+          ? "anonymous"
+          : normalizeToAssetHubAddress(paymentReceived.from),
+        transactionId: paymentReceived.blockHash,
+        blockNumber: paymentReceived.blockNumber,
+        blockHash: paymentReceived.blockHash,
+        assetId: ASSET_ID_STR,
+        saleId: paymentReceived.saleId,
+        terminalId: adminPayload?.terminalId,
+        merchantId: adminPayload?.merchantId,
+        items: receiptItems.length > 0 ? receiptItems : undefined,
+      }));
+      setPrintMessage({ tone: "success", text: "Sent to printer." });
+    } catch (err) {
+      console.error("[Printer] Failed to print receipt:", err);
+      setPrintMessage({ tone: "error", text: "Printing failed. Check the printer and try again." });
+    } finally {
+      setIsPrintingReceipt(false);
+    }
   };
 
 
@@ -629,6 +692,7 @@ function TerminalPageInner() {
     const paymentIncoming =
       useCoins &&
       (coinage.status === "claiming" || coinage.status === "paid");
+    const canCancelTransaction = !paymentIncoming && !partial && !paymentReceived;
     return (
       <div className="h-dvh bg-black flex flex-col overflow-hidden">
         <div className="flex-1 min-h-0 flex flex-col max-w-md mx-auto w-full">
@@ -703,12 +767,14 @@ function TerminalPageInner() {
                 </p>
               )}
 
-              <button
-                onClick={() => setShowCancelModal(true)}
-                className="w-full bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-3 rounded-xl transition"
-              >
-                Cancel Transaction
-              </button>
+              {canCancelTransaction && (
+                <button
+                  onClick={() => setShowCancelModal(true)}
+                  className="w-full bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-3 rounded-xl transition"
+                >
+                  Cancel Transaction
+                </button>
+              )}
             </div>
           </main>
         </div>
@@ -791,13 +857,29 @@ function TerminalPageInner() {
 
             {/* Action Buttons */}
             <div className="w-full space-y-3">
-              <button
-                onClick={() => setTerminalState("share")}
-                className="w-full bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-4 rounded-xl transition flex items-center justify-center gap-2"
-              >
-                <Share2 className="w-5 h-5" />
-                Share Record via QR
-              </button>
+              <div className={printerAvailable ? "grid grid-cols-2 gap-3" : ""}>
+                <button
+                  onClick={() => setTerminalState("share")}
+                  className="w-full bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-4 rounded-xl transition flex items-center justify-center gap-2"
+                >
+                  <Share2 className="w-5 h-5" />
+                  Share QR
+                </button>
+                {printerAvailable ? (
+                  <button
+                    onClick={handlePrintReceipt}
+                    disabled={isPrintingReceipt}
+                    className="bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-4 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isPrintingReceipt ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Printer className="w-5 h-5" />
+                    )}
+                    Print
+                  </button>
+                ) : null}
+              </div>
               <button
                 onClick={() => setTerminalState("receipt")}
                 className="w-full bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-4 rounded-xl transition"
@@ -811,6 +893,15 @@ function TerminalPageInner() {
               >
                 Done
               </button>
+              {printMessage && (
+                <div className={`rounded-lg border px-3 py-2 text-xs ${
+                  printMessage.tone === "success"
+                    ? "bg-green-900/30 border-green-800 text-green-400"
+                    : "bg-red-900/30 border-red-800 text-red-400"
+                }`}>
+                  {printMessage.text}
+                </div>
+              )}
             </div>
           </main>
         </div>
@@ -896,7 +987,7 @@ function TerminalPageInner() {
               <X className="w-6 h-6 text-white" />
             </button>
             <span className="text-white font-medium">Payment Record #{saleId?.slice(-4)}</span>
-            <button onClick={handleDownloadReceipt} className="p-2">
+            <button onClick={handleDownloadReceipt} className="p-2" aria-label="Download receipt">
               <Download className="w-6 h-6 text-white" />
             </button>
           </header>
@@ -913,7 +1004,9 @@ function TerminalPageInner() {
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-bold text-black">PAYMENT RECEIPT</h3>
-                      <p className="text-xs text-neutral-500">Block: {paymentReceived?.blockNumber}</p>
+                      {paymentReceived?.blockNumber ? (
+                        <p className="text-xs text-neutral-500">Block: {paymentReceived.blockNumber}</p>
+                      ) : null}
                     </div>
                     <span className="text-sm text-neutral-500">#{saleId?.slice(-4)}</span>
                   </div>

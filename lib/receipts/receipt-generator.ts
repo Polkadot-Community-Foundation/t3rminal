@@ -2,8 +2,8 @@
  * SVG Receipt Generator — Quittung-style paper receipt with optional itemized
  * lines. Designed to print on a standard 80mm thermal roll equivalent.
  *
- * When `items` are present the receipt shows the line-by-line breakdown,
- * subtotal, tendered amount, change and tax footer (Funkhaus-style). When no
+ * When `items` are present the record shows the line-by-line breakdown and
+ * total. When no
  * items are passed (direct-amount-entry flow) the layout falls back to a
  * compact "amount only" receipt.
  */
@@ -31,6 +31,8 @@ export interface ReceiptData {
   timestamp?: Date
   assetId?: string
   saleId?: string
+  terminalId?: string
+  merchantId?: string
   /** Optional itemized breakdown — when present, renders Quittung layout. */
   items?: ReceiptItem[]
   /** Optional business profile override (defaults to BUSINESS_PROFILE). */
@@ -73,6 +75,7 @@ const WIDTH = 320
 const LINE = 16 // monospace line height
 const FONT_MONO = "ui-monospace, 'SF Mono', Menlo, Consolas, monospace"
 const FONT_DISPLAY = "ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const MONO_CHAR_WIDTH = 0.62
 
 type RenderRow =
   | { type: "text"; value: string; align?: "left" | "center" | "right"; bold?: boolean; size?: number }
@@ -82,6 +85,7 @@ type RenderRow =
 
 function buildRows(data: ReceiptData, business: BusinessProfile, ts: Date): RenderRow[] {
   const rows: RenderRow[] = []
+  const asset = data.asset || business.currency
 
   // Header — business identity, centered
   rows.push({ type: "text", value: business.name, align: "center", bold: true, size: 13 })
@@ -92,18 +96,19 @@ function buildRows(data: ReceiptData, business: BusinessProfile, ts: Date): Rend
   rows.push({ type: "text", value: "RECORD", align: "center", bold: true, size: 20 })
   rows.push({ type: "space", height: 10 })
 
-  // Meta — Record # / Date / dual Sale ID / Admin
+  // Meta — visible short record number plus the full sale ID for reconciliation.
   rows.push({ type: "split", left: "Record", right: `#${shortRef(data.saleId)}` })
   rows.push({ type: "split", left: "Date", right: formatDateEn(ts) })
   if (data.saleId) {
-    rows.push({ type: "text", value: `${shortRef(data.saleId)} (ID: ${data.saleId})`, align: "left", size: 10 })
+    rows.push({ type: "text", value: `Sale ID: ${data.saleId}`, align: "left", size: 10 })
   }
-  rows.push({ type: "text", value: "Admin", align: "left", size: 11 })
+  if (data.terminalId) rows.push({ type: "split", left: "Terminal", right: shortRef(data.terminalId) })
+  if (data.merchantId) rows.push({ type: "split", left: "Merchant ID", right: data.merchantId })
   rows.push({ type: "space", height: 4 })
   rows.push({ type: "rule" })
 
-  // Right-aligned currency header above prices
-  rows.push({ type: "text", value: business.currency, align: "right", bold: true })
+  // Right-aligned asset header above prices.
+  rows.push({ type: "text", value: asset, align: "right", bold: true })
 
   // Items
   if (data.items && data.items.length > 0) {
@@ -112,7 +117,7 @@ function buildRows(data: ReceiptData, business: BusinessProfile, ts: Date): Rend
       rows.push({
         type: "split",
         left: `${item.quantity} × ${item.name}`,
-        right: `${formatMoney(lineTotal)} A`,
+        right: formatMoney(lineTotal),
       })
     }
   } else {
@@ -120,29 +125,16 @@ function buildRows(data: ReceiptData, business: BusinessProfile, ts: Date): Rend
     rows.push({
       type: "split",
       left: "1 × Amount",
-      right: `${formatMoney(data.amount)} A`,
+      right: formatMoney(data.amount),
     })
   }
 
   rows.push({ type: "rule" })
-  rows.push({ type: "split", left: `Total ${business.currency}`, right: formatMoney(data.amount), bold: true, size: 14 })
+  rows.push({ type: "split", left: `Total ${asset}`, right: formatMoney(data.amount), bold: true, size: 14 })
 
-  // Payment / change — receipt printed in the merchant's local currency (CASH).
+  // Payment record totals use the actual transaction asset.
   rows.push({ type: "space", height: 6 })
-  rows.push({ type: "split", left: `Paid ${business.currency}`, right: formatMoney(data.amount) })
-  rows.push({ type: "split", left: "Change", right: "0.00" })
-
-  // Tax footer
-  if (business.taxRate > 0) {
-    const net = Number(data.amount) / (1 + business.taxRate / 100)
-    const tax = Number(data.amount) - net
-    rows.push({ type: "space", height: 6 })
-    rows.push({
-      type: "split",
-      left: `A incl. ${business.taxRate}% VAT on ${formatMoney(net.toFixed(2))}`,
-      right: formatMoney(tax.toFixed(2)),
-    })
-  }
+  rows.push({ type: "split", left: `Paid ${asset}`, right: formatMoney(data.amount) })
 
   return rows
 }
@@ -151,6 +143,62 @@ function buildRows(data: ReceiptData, business: BusinessProfile, ts: Date): Rend
 
 interface ComposeOptions {
   qrDataUrl?: string
+}
+
+function maxMonoChars(width: number, fontSize: number): number {
+  return Math.max(4, Math.floor(width / (fontSize * MONO_CHAR_WIDTH)))
+}
+
+function wrapText(value: string, maxChars: number): string[] {
+  if (value.length <= maxChars) return [value]
+
+  const lines: string[] = []
+  const words = value.split(/(\s+)/).filter(Boolean)
+  let current = ""
+
+  const pushHardWrapped = (text: string) => {
+    for (let i = 0; i < text.length; i += maxChars) {
+      lines.push(text.slice(i, i + maxChars))
+    }
+  }
+
+  for (const word of words) {
+    if (/^\s+$/.test(word)) {
+      if (current && current.length < maxChars) current += " "
+      continue
+    }
+
+    if (word.length > maxChars) {
+      if (current.trim()) lines.push(current.trimEnd())
+      current = ""
+      pushHardWrapped(word)
+      continue
+    }
+
+    const next = current ? `${current}${word}` : word
+    if (next.length > maxChars) {
+      if (current.trim()) lines.push(current.trimEnd())
+      current = word
+    } else {
+      current = next
+    }
+  }
+
+  if (current.trim()) lines.push(current.trimEnd())
+  return lines.length > 0 ? lines : [value]
+}
+
+function splitRowLineCount(r: Extract<RenderRow, { type: "split" }>, innerWidth: number): number {
+  const size = r.size ?? 12
+  const leftWidth = r.left.length * size * MONO_CHAR_WIDTH
+  const rightChars = maxMonoChars(innerWidth - leftWidth - 8, size)
+  if (r.right.length <= rightChars) return 1
+  return 1 + wrapText(r.right, maxMonoChars(innerWidth, size)).length
+}
+
+function textRowLines(r: Extract<RenderRow, { type: "text" }>, innerWidth: number): string[] {
+  const size = r.size ?? 12
+  return wrapText(r.value, maxMonoChars(innerWidth, size))
 }
 
 function composeSvg(rows: RenderRow[], opts: ComposeOptions): string {
@@ -162,7 +210,8 @@ function composeSvg(rows: RenderRow[], opts: ComposeOptions): string {
   for (const r of rows) {
     if (r.type === "space") y += r.height
     else if (r.type === "rule") y += 8
-    else y += LINE
+    else if (r.type === "text") y += textRowLines(r, innerWidth).length * LINE
+    else y += splitRowLineCount(r, innerWidth) * LINE
   }
 
   // QR area
@@ -194,19 +243,36 @@ function composeSvg(rows: RenderRow[], opts: ComposeOptions): string {
       const align = r.align ?? "left"
       const x = align === "center" ? WIDTH / 2 : align === "right" ? WIDTH - padding : padding
       const anchor = align === "center" ? "middle" : align === "right" ? "end" : "start"
-      elements.push(
-        `<text x="${x}" y="${y + size * 0.8}" font-family="${family}" font-size="${size}" font-weight="${weight}" text-anchor="${anchor}" fill="#111">${escapeXml(r.value)}</text>`
-      )
+      const lines = textRowLines(r, innerWidth)
+      lines.forEach((line, index) => {
+        elements.push(
+          `<text x="${x}" y="${y + index * LINE + size * 0.8}" font-family="${family}" font-size="${size}" font-weight="${weight}" text-anchor="${anchor}" fill="#111">${escapeXml(line)}</text>`
+        )
+      })
+      y += lines.length * LINE
     } else {
       // split
+      const leftWidth = r.left.length * size * MONO_CHAR_WIDTH
+      const rightChars = maxMonoChars(innerWidth - leftWidth - 8, size)
       elements.push(
         `<text x="${padding}" y="${y + size * 0.8}" font-family="${FONT_MONO}" font-size="${size}" font-weight="${weight}" fill="#111">${escapeXml(r.left)}</text>`
       )
-      elements.push(
-        `<text x="${WIDTH - padding}" y="${y + size * 0.8}" font-family="${FONT_MONO}" font-size="${size}" font-weight="${weight}" text-anchor="end" fill="#111">${escapeXml(r.right)}</text>`
-      )
+      if (r.right.length <= rightChars) {
+        elements.push(
+          `<text x="${WIDTH - padding}" y="${y + size * 0.8}" font-family="${FONT_MONO}" font-size="${size}" font-weight="${weight}" text-anchor="end" fill="#111">${escapeXml(r.right)}</text>`
+        )
+        y += LINE
+      } else {
+        const lines = wrapText(r.right, maxMonoChars(innerWidth, size))
+        lines.forEach((line, index) => {
+          elements.push(
+            `<text x="${WIDTH - padding}" y="${y + (index + 1) * LINE + size * 0.8}" font-family="${FONT_MONO}" font-size="${size}" font-weight="${weight}" text-anchor="end" fill="#111">${escapeXml(line)}</text>`
+          )
+        })
+        y += (1 + lines.length) * LINE
+      }
+      continue
     }
-    y += LINE
   }
 
   // QR
