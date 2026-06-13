@@ -14,7 +14,7 @@ import {
 import { useAccount } from "@/lib/web3";
 import { loadManualKey, manualKeyFingerprint } from "@/lib/crypto/manual-key";
 import { encryptReportSymmetric } from "@/lib/crypto/symmetric-report";
-import { journeyTracker, captureError } from "@/lib/telemetry";
+import { journeyTracker, captureError, isExpectedError } from "@/lib/telemetry";
 import { loadAdminQrPayload } from "@/lib/config/admin-qr";
 import { isOnchainIndexingEnabled } from "@/lib/config/onchain-indexing";
 import type { T3rminalConfigQrPayloadV2 } from "@/lib/config/t3rminal-config-qr";
@@ -424,7 +424,12 @@ export function useDailyReport(): UseDailyReportReturn {
         setError(message);
         setPhase("idle");
         journeyTracker.fail(journey, message);
-        captureError(err, { component: "daily-report", phase: finalize ? "finalize" : "save" }, { date });
+        captureError(
+          err,
+          { component: "daily-report", phase: finalize ? "finalize" : "save",
+            expected: isExpectedError(message) },
+          { date }
+        );
         throw err;
       }
     },

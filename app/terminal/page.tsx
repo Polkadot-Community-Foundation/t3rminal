@@ -384,6 +384,13 @@ function TerminalPageInner() {
   // otherwise the standard pUSD payload.
   const displayQrValue = useCoins ? coinage.qrValue : qrValue;
 
+  // For the coins path the deeplink QR comes from the coinage hook, not the
+  // standard qrValue — track when it's ready so the journey waterfall captures
+  // QR-armed time for both payment methods.
+  useEffect(() => {
+    if (useCoins && coinage.qrValue) journeyTracker.milestone("terminal-payment", "qr-generated");
+  }, [useCoins, coinage.qrValue]);
+
   // Coins flow failure: the host's claim/top-up can error out (decrypt,
   // codec, or chain trouble). The voucher flow has no comparable terminal
   // failure — a missing payment is an abandon, not a failure — so this is the
