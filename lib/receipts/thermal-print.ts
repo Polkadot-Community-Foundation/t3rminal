@@ -39,7 +39,7 @@ function businessHeader(business: BusinessProfile): PrintLine[] {
   ];
 }
 
-export function buildCustomerReceiptPrintDocument(data: ReceiptData): PrintDocument {
+export function buildCustomerReceiptPrintDocument(data: ReceiptData, qrValue?: string): PrintDocument {
   const ts = data.timestamp ? new Date(data.timestamp) : new Date();
   const business = data.business ?? BUSINESS_PROFILE;
   const amount = formatMoney(data.amount);
@@ -69,6 +69,9 @@ export function buildCustomerReceiptPrintDocument(data: ReceiptData): PrintDocum
     ],
     items,
     totals,
+    // Same save-receipt deeplink the SVG/download receipt embeds — lets a
+    // scanner (or the Polkadot host) rebuild the receipt offline.
+    qr: qrValue ? { data: qrValue, label: "Scan QR in W3SPay" } : undefined,
     footer: ["Thank you"],
   };
 }
