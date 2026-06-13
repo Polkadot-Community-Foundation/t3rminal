@@ -71,7 +71,9 @@ export function buildCustomerReceiptPrintDocument(data: ReceiptData, qrValue?: s
     totals,
     // Same save-receipt deeplink the SVG/download receipt embeds — lets a
     // scanner (or the Polkadot host) rebuild the receipt offline.
-    qr: qrValue ? { data: qrValue, label: "Scan QR in W3SPay" } : undefined,
+    // moduleSize kept small so the QR fits within 58mm paper (no default —
+    // the host's default renders too wide and clips at the right margin).
+    qr: qrValue ? { data: qrValue, label: "Scan QR in W3SPay", moduleSize: 4 } : undefined,
     footer: ["Thank you"],
   };
 }
