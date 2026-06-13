@@ -110,15 +110,15 @@ export function buildReportPrintDocument(report: DailyReport, kind: Extract<Prin
       ...(firstSale ? [{ label: "First record", value: shortRef(firstSale) }] : []),
       ...(lastSale ? [{ label: "Last record", value: shortRef(lastSale) }] : []),
     ],
-    items: itemSummary.slice(0, 12),
+    // Print every distinct item — the list length is the item count itself, no
+    // fixed cap. A fiscal report must show the full itemized breakdown.
+    items: itemSummary,
     totals: [
       { label: `Gross ${asset}`.trim(), value: formatMoney(String(finishedTotal)) },
       ...(refundedTotal > 0 ? [{ label: `Refunds ${asset}`.trim(), value: `-${formatMoney(String(refundedTotal))}` }] : []),
       { label: `Net ${asset}`.trim(), value: formatMoney(String(netTotal)) },
     ],
-    footer: itemSummary.length > 12
-      ? [`${itemSummary.length - 12} more items not shown`]
-      : [],
+    footer: [],
   };
 }
 
