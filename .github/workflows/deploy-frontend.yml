@@ -108,7 +108,7 @@ jobs:
               DOMAIN="t3rminal.dot"
             fi
             export BULLETIN_DEPLOY_DOMAIN="$DOMAIN"
-            bulletin-deploy --env paseo-next-v2 './out' "$DOMAIN"
+            bulletin-deploy --publish --env paseo-next-v2 './out' "$DOMAIN"
         env:
           MNEMONIC: ${{ secrets.DOTNS_MNEMONIC }}
           NODE_OPTIONS: '--max-old-space-size=8192'
