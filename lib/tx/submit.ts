@@ -1,5 +1,7 @@
 import type { PolkadotSigner } from "polkadot-api"
 
+import { captureError } from "@/lib/telemetry"
+
 export type TxStatus = "signing" | "broadcasting" | "in-block" | "finalized" | "error"
 export type WaitFor = "best-block" | "finalized"
 
@@ -309,6 +311,11 @@ export async function submitAndWatch(
                   console.warn(
                     "[tx] Transaction failed after best-block (reorg). Consumer received a stale success result.",
                     { formatted, block: event.block }
+                  )
+                  captureError(
+                    new Error(`reorg invalidated settled tx: ${formatted}`),
+                    { component: "tx", phase: "reorg-after-best-block" },
+                    { block: event.block }
                   )
                 } else {
                   settleReject(new TxDispatchError(event.dispatchError, formatted))

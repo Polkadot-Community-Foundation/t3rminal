@@ -10,6 +10,8 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { installLogCapture } from "@/lib/debug/log-capture";
+import { commonInitOptions } from "@/lib/telemetry/sentry-init";
+import { getE2eTag } from "@/lib/telemetry/e2e-tag";
 
 // Mirror every console.* call (and uncaught errors) into an in-memory buffer
 // so Settings → Debug logs can export them — phones in the host webview have
@@ -76,27 +78,17 @@ if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
   setTimeout(install, 500);
 }
 
-const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN ?? "";
-const tracesSampleRate = Number(
-  process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE ?? "0.0",
-);
-
 Sentry.init({
-  dsn,
-  // Skip network requests entirely when no DSN is configured (e.g. local dev
-  // without Sentry credentials). Keeps console clean instead of spamming
-  // "no DSN" warnings.
-  enabled: dsn.length > 0,
-  // No automatic tracing — tracesSampleRate is 0 by default, so even the
-  // SDK's default browser-tracing integration emits nothing (only explicit
-  // `Sentry.startSpan` calls are sampled, when the rate is raised).
-  tracesSampleRate,
-  // Keep only session replay, and only on errors: no session recording,
-  // 100% replay capture when an error occurs.
+  ...commonInitOptions(),
+  // Keep error-only session replay (no session recording, 100% on error).
   integrations: [Sentry.replayIntegration()],
   replaysSessionSampleRate: 0.0,
   replaysOnErrorSampleRate: 1.0,
 });
+
+// Tag synthetic E2E traffic so production error alerts can exclude it.
+const e2eTag = getE2eTag();
+if (e2eTag) Sentry.setTag("tag", e2eTag);
 
 // Required for Next.js App Router navigation instrumentation
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

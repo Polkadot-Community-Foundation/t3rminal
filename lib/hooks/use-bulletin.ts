@@ -8,7 +8,7 @@ import {
 } from "@/lib/bulletin/client";
 import { isSymmetricEncryptedReport, decryptReportSymmetric } from "@/lib/crypto/symmetric-report";
 import { loadManualKey } from "@/lib/crypto/manual-key";
-import { journeyTracker, captureError, withSpan, SpanOp } from "@/lib/telemetry";
+import { journeyTracker, captureError, isExpectedError, withSpan, SpanOp } from "@/lib/telemetry";
 
 export interface DailyReportItem {
   name: string;
@@ -111,7 +111,10 @@ export function useBulletin(): UseBulletinReturn {
         const message = err instanceof Error ? err.message : "Failed to upload report";
         console.error("[Bulletin] Upload failed:", message);
         setError(message);
-        captureError(err, { component: "bulletin", phase: "upload-report" });
+        captureError(err, {
+          component: "bulletin", phase: "upload-report",
+          expected: isExpectedError(message),
+        });
         throw err;
       } finally {
         setIsUploading(false);
