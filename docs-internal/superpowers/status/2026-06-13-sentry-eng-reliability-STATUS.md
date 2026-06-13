@@ -52,6 +52,27 @@
 - **Idempotency enforcement:** tracked in t3rminal-internal#170 (out of scope here).
 - **Matrix alert rules:** team-owned; created post-DSN.
 
+## BLOCKED ON WRITE ACCESS (2026-06-13) — staged, ready to fire
+`EnderOfWorlds007` (the session's gh/git account) has **read-only** on `paritytech/t3rminal`
+(`push:false, admin:false`; can't set secrets). Ionut is asking maintainers to grant write
+(Saturday — delay expected). Branch is fully committed locally; nothing else is in flight.
+
+**The instant `EnderOfWorlds007` has push (+ admin/secrets for the DSN), run exactly this:**
+```bash
+cd /Users/ionut/Documents/GitHub/t3rminal
+git fetch origin && git rebase origin/main           # branch is docs+telemetry; expect clean
+git push -u origin feat/sentry-eng-reliability
+gh pr create --repo paritytech/t3rminal --base main --head feat/sentry-eng-reliability \
+  --title "Sentry engineering-reliability instrumentation" \
+  --body-file docs-internal/superpowers/status/sentry-eng-reliability-pr-body.md
+# DSN so the PR preview sends telemetry (needs repo admin/secrets perm):
+gh secret set NEXT_PUBLIC_SENTRY_DSN --repo paritytech/t3rminal \
+  --body 'https://d525dec6a98895f678ca4f0e726a9bd7@o4511059872841728.ingest.de.sentry.io/4511547331903568'
+```
+Then: PR `pull_request` trigger deploys a `pr<N>-` preview app; verify CI to a terminal state;
+do the hands-on live-event scrub smoke against the preview (Sentry now enabled).
+If only push (not admin) is granted: open the PR; ask an admin to set the secret.
+
 ## Resume / next steps for the human
 - Review the branch; when ready: set repo secret `NEXT_PUBLIC_SENTRY_DSN` (value in spec/memory), open PR (rebase on origin/main first), merge, then hands-on smoke (trigger a real error carrying a fake secret → confirm redacted in Sentry).
 
