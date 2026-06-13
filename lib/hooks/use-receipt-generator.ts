@@ -2,7 +2,7 @@ import { useState } from "react";
 import { usePdfReceipt } from "./use-pdf-receipt";
 import { getTimestampFromSaleId } from "@/lib/utils/sale-id";
 import { buildReceiptDeeplink, type ReceiptItem } from "@/lib/receipts/receipt-generator";
-import { BUSINESS_PROFILE, type BusinessProfile } from "@/lib/config/business";
+import { businessProfileFromAdminPayload } from "@/lib/config/business";
 import { useAdminQrPayload } from "@/lib/config/admin-qr";
 
 export interface ReceiptData {
@@ -15,6 +15,8 @@ export interface ReceiptData {
   blockHash?: string;
   assetId: string;
   saleId?: string;
+  terminalId?: string;
+  merchantId?: string;
   /** Optional itemized rows when the sale came from /items */
   items?: ReceiptItem[];
 }
@@ -29,23 +31,7 @@ export function useReceiptGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Synthesize a BusinessProfile from the admin payload when one is bound.
-  // The richer `profile` field (post-2026-06 QRs) carries address + phone
-  // + tax id directly; older QRs only carry `displayName`, in which case
-  // address lines fall back to the local BUSINESS_PROFILE defaults.
-  // taxRate + currency aren't on the QR yet — they stay on the local
-  // profile until the admin format covers them.
-  const business: BusinessProfile = adminPayload
-    ? {
-        ...BUSINESS_PROFILE,
-        name: adminPayload.profile?.name ?? adminPayload.displayName,
-        addressLine1:
-          adminPayload.profile?.addressLine1 ?? BUSINESS_PROFILE.addressLine1,
-        addressLine2:
-          adminPayload.profile?.addressLine2 ?? BUSINESS_PROFILE.addressLine2,
-        phone: adminPayload.profile?.phone ?? BUSINESS_PROFILE.phone,
-      }
-    : BUSINESS_PROFILE;
+  const business = businessProfileFromAdminPayload(adminPayload);
 
   /**
    * Generate SVG receipt with embedded QR code
@@ -75,6 +61,8 @@ export function useReceiptGenerator() {
         timestamp,
         assetId: data.assetId,
         saleId: data.saleId,
+        terminalId: data.terminalId ?? adminPayload?.terminalId,
+        merchantId: data.merchantId ?? adminPayload?.merchantId,
         items: data.items,
       });
 
@@ -98,6 +86,8 @@ export function useReceiptGenerator() {
           timestamp,
           assetId: data.assetId,
           saleId: data.saleId,
+          terminalId: data.terminalId ?? adminPayload?.terminalId,
+          merchantId: data.merchantId ?? adminPayload?.merchantId,
           items: data.items,
         });
 
@@ -136,6 +126,8 @@ export function useReceiptGenerator() {
         timestamp,
         assetId: data.assetId,
         saleId: data.saleId,
+        terminalId: data.terminalId ?? adminPayload?.terminalId,
+        merchantId: data.merchantId ?? adminPayload?.merchantId,
         items: data.items,
       },
       business,
@@ -169,6 +161,8 @@ export function useReceiptGenerator() {
         timestamp,
         assetId: data.assetId,
         saleId: data.saleId,
+        terminalId: data.terminalId ?? adminPayload?.terminalId,
+        merchantId: data.merchantId ?? adminPayload?.merchantId,
         items: data.items,
       });
 

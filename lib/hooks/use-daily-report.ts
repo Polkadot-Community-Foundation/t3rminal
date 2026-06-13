@@ -17,6 +17,7 @@ import { encryptReportSymmetric } from "@/lib/crypto/symmetric-report";
 import { journeyTracker, captureError, isExpectedError } from "@/lib/telemetry";
 import { loadAdminQrPayload } from "@/lib/config/admin-qr";
 import { isOnchainIndexingEnabled } from "@/lib/config/onchain-indexing";
+import type { T3rminalConfigQrPayloadV2 } from "@/lib/config/t3rminal-config-qr";
 
 export interface FinalizeDayResult {
   report: DailyReport;
@@ -59,6 +60,7 @@ export interface UseDailyReportReturn {
   phaseLabel: string;
   error: string | null;
   generateReport: (date: string, merchantAddress: string, finalize?: boolean) => Promise<DailyReport>;
+  generateReportForSales: (args: PeriodReportArgs) => Promise<DailyReport>;
   uploadReport: (report: DailyReport) => Promise<{
     cid: string;
     cidHash: string;
@@ -70,11 +72,22 @@ export interface UseDailyReportReturn {
    * leaving the day OPEN (repeatable — overwrites the prior CID).
    */
   saveDailyReport: (date: string, merchantAddress: string) => Promise<FinalizeDayResult>;
+  savePeriodReport: (args: PeriodReportArgs) => Promise<FinalizeDayResult>;
   /**
    * Same pipeline as `saveDailyReport`, but LOCKS the day on-chain. After this
    * the contract rejects any further write to (merchantId, terminalId, date).
    */
   finalizeDailyReport: (date: string, merchantAddress: string) => Promise<FinalizeDayResult>;
+  finalizePeriodReport: (args: PeriodReportArgs) => Promise<FinalizeDayResult>;
+}
+
+export interface PeriodReportArgs {
+  date: string;
+  periodKey: string;
+  merchantAddress: string;
+  sales: SaleRecord[];
+  periodStart?: Date;
+  periodLabel?: string;
 }
 
 /**
@@ -84,6 +97,60 @@ async function getSalesForDate(date: string, merchantAddressNormalized: string):
   const dayStart = new Date(date + "T00:00:00");
   const dayEnd = new Date(date + "T23:59:59.999");
   return getSalesForMerchantByDate(merchantAddressNormalized, dayStart, dayEnd);
+}
+
+function buildDailyReportFromSales(args: {
+  date: string;
+  periodKey?: string;
+  sales: SaleRecord[];
+  merchantAddress: string;
+  finalize: boolean;
+  adminPayload: T3rminalConfigQrPayloadV2 | null;
+  periodStart?: Date;
+  periodLabel?: string;
+}): DailyReport {
+  const terminalId = args.adminPayload?.terminalId ?? "T3RMINAL";
+  const sortedSales = [...args.sales].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  );
+
+  return {
+    exportDate: new Date().toISOString(),
+    selectedDate: args.date,
+    periodKey: args.periodKey,
+    periodLabel: args.periodLabel,
+    periodStart: args.periodStart?.toISOString(),
+    periodEnd: sortedSales.at(-1)
+      ? new Date(sortedSales.at(-1)!.timestamp).toISOString()
+      : undefined,
+    merchantId: args.adminPayload?.merchantId,
+    merchantName: args.adminPayload?.profile?.name ?? args.adminPayload?.displayName,
+    terminalId,
+    network: activeNetwork.name,
+    rpcUrl: activeNetwork.rpcUrl,
+    totalTransactions: sortedSales.length,
+    dayFinalized: args.finalize,
+    transactions: sortedSales.map((sale: SaleRecord) => ({
+      saleId: sale.saleId,
+      status: "Finished" as const,
+      amount: sale.amountPlanck || "0",
+      amountFormatted: sale.amount,
+      asset: sale.asset,
+      evmMerchant: sale.merchantAddress,
+      evmCustomer: sale.customerAddress,
+      txHash: sale.transactionHash || "",
+      blockNumber: sale.blockNumber?.toString() || "0",
+      timestamp: new Date(sale.timestamp).getTime().toString(),
+      timestampFormatted: new Date(sale.timestamp).toISOString(),
+      terminalId,
+      refundOf: null,
+      originalCustomer: sale.customerAddress,
+      originalMerchant: sale.merchantAddress,
+      originalBlockNumber: sale.blockNumber?.toString() || "0",
+      originalBlockHash: sale.blockHash || "",
+      items: sale.items,
+    })),
+  };
 }
 
 /**
@@ -129,36 +196,14 @@ export function useDailyReport(): UseDailyReportReturn {
           getSalesForDate(date, merchantAddress),
           loadAdminQrPayload(),
         ]);
-        const terminalId = adminPayload?.terminalId ?? "T3RMINAL";
-
-        const report: DailyReport = {
-          exportDate: new Date().toISOString(),
-          selectedDate: date,
-          network: activeNetwork.name,
-          rpcUrl: activeNetwork.rpcUrl,
-          totalTransactions: sales.length,
-          dayFinalized: finalize,
-          transactions: sales.map((sale: SaleRecord) => ({
-            saleId: sale.saleId,
-            status: "Finished" as const,
-            amount: sale.amountPlanck || "0",
-            amountFormatted: sale.amount,
-            asset: sale.asset,
-            evmMerchant: sale.merchantAddress,
-            evmCustomer: sale.customerAddress,
-            txHash: sale.transactionHash || "",
-            blockNumber: sale.blockNumber?.toString() || "0",
-            timestamp: new Date(sale.timestamp).getTime().toString(),
-            timestampFormatted: new Date(sale.timestamp).toISOString(),
-            terminalId,
-            refundOf: null,
-            originalCustomer: sale.customerAddress,
-            originalMerchant: sale.merchantAddress,
-            originalBlockNumber: sale.blockNumber?.toString() || "0",
-            originalBlockHash: sale.blockHash || "",
-            items: sale.items,
-          })),
-        };
+        const report = buildDailyReportFromSales({
+          date,
+          periodKey: date,
+          sales,
+          merchantAddress,
+          finalize,
+          adminPayload,
+        });
 
         return report;
       } catch (err) {
@@ -170,6 +215,34 @@ export function useDailyReport(): UseDailyReportReturn {
       }
     },
     []
+  );
+
+  const generateReportForSales = useCallback(
+    async (args: PeriodReportArgs): Promise<DailyReport> => {
+      setIsGenerating(true);
+      setError(null);
+
+      try {
+        const adminPayload = await loadAdminQrPayload();
+        return buildDailyReportFromSales({
+          date: args.date,
+          periodKey: args.periodKey,
+          sales: args.sales,
+          merchantAddress: args.merchantAddress,
+          finalize: false,
+          adminPayload,
+          periodStart: args.periodStart,
+          periodLabel: args.periodLabel,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to generate report";
+        setError(message);
+        throw err;
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [],
   );
 
   /**
@@ -202,13 +275,19 @@ export function useDailyReport(): UseDailyReportReturn {
    * CID; `finalizeDailyReport` (finalize=true) locks it.
    */
   const runReport = useCallback(
-    async (date: string, merchantAddress: string, finalize: boolean): Promise<FinalizeDayResult> => {
+    async (
+      date: string,
+      merchantAddress: string,
+      finalize: boolean,
+      period?: Omit<PeriodReportArgs, "date" | "merchantAddress">,
+    ): Promise<FinalizeDayResult> => {
       setError(null);
       setPhase("generating");
+      const reportKey = period?.periodKey ?? date;
 
       const journey = finalize ? "daily-report-finalize" : "daily-report-save";
       journeyTracker.start(journey, {
-        "journey.date": date,
+        "journey.date": reportKey,
         "journey.terminal": merchantAddress.slice(0, 12),
       });
 
@@ -218,8 +297,19 @@ export function useDailyReport(): UseDailyReportReturn {
         const terminalId = adminPayload?.terminalId ?? "T3RMINAL";
         const merchantId = adminPayload?.merchantId ?? "";
 
-        // 1. Generate report from localStorage
-        const report = await generateReport(date, merchantAddress, finalize);
+        // 1. Generate report from localStorage or an explicit period slice.
+        const report = period
+          ? buildDailyReportFromSales({
+              date,
+              periodKey: reportKey,
+              sales: period.sales,
+              merchantAddress,
+              finalize,
+              adminPayload,
+              periodStart: period.periodStart,
+              periodLabel: period.periodLabel,
+            })
+          : await generateReport(date, merchantAddress, finalize);
         journeyTracker.milestone(journey, "report-generated");
         journeyTracker.addAttributes(journey, {
           "journey.tx_count": report.totalTransactions,
@@ -239,7 +329,7 @@ export function useDailyReport(): UseDailyReportReturn {
             JSON.stringify(report),
             manualKey,
             {
-              date,
+              date: reportKey,
               txCount: report.totalTransactions,
               terminal: merchantAddress.slice(0, 12),
               keyFingerprint: fp,
@@ -278,7 +368,7 @@ export function useDailyReport(): UseDailyReportReturn {
                 {
                   merchantId,
                   terminalId,
-                  date,
+                  date: reportKey,
                   cid: uploadResult.cid,
                   entryCount: report.totalTransactions,
                   finalize,
@@ -301,7 +391,7 @@ export function useDailyReport(): UseDailyReportReturn {
         // 5. Store CID locally in IndexedDB
         setPhase("saving-local");
         await addDailyReport({
-          date,
+          date: reportKey,
           cid: uploadResult.cid,
           gatewayUrl: uploadResult.gatewayUrl,
           bulletinBlockHash: uploadResult.blockHash,
@@ -311,10 +401,11 @@ export function useDailyReport(): UseDailyReportReturn {
           finalized: finalize,
           signedBy: uploadResult.signedBy,
           publishedAt: new Date(),
+          periodClosedAt: finalize ? report.periodEnd ?? new Date().toISOString() : undefined,
         });
         journeyTracker.milestone(journey, "saved-local");
 
-        console.log(`[DailyReport] ${finalize ? "Finalized" : "Saved"} ${date}: ${report.totalTransactions} tx, CID: ${uploadResult.cid.slice(0, 20)}..., on-chain: ${onChainIndexed}`);
+        console.log(`[DailyReport] ${finalize ? "Finalized" : "Saved"} ${reportKey}: ${report.totalTransactions} tx, CID: ${uploadResult.cid.slice(0, 20)}..., on-chain: ${onChainIndexed}`);
         setPhase("done");
         journeyTracker.complete(journey);
 
@@ -350,9 +441,31 @@ export function useDailyReport(): UseDailyReportReturn {
     [runReport]
   );
 
+  const savePeriodReport = useCallback(
+    (args: PeriodReportArgs) =>
+      runReport(args.date, args.merchantAddress, false, {
+        periodKey: args.periodKey,
+        sales: args.sales,
+        periodStart: args.periodStart,
+        periodLabel: args.periodLabel,
+      }),
+    [runReport],
+  );
+
   const finalizeDailyReport = useCallback(
     (date: string, merchantAddress: string) => runReport(date, merchantAddress, true),
     [runReport]
+  );
+
+  const finalizePeriodReport = useCallback(
+    (args: PeriodReportArgs) =>
+      runReport(args.date, args.merchantAddress, true, {
+        periodKey: args.periodKey,
+        sales: args.sales,
+        periodStart: args.periodStart,
+        periodLabel: args.periodLabel,
+      }),
+    [runReport],
   );
 
   const isActive = phase !== "idle" && phase !== "done";
@@ -365,8 +478,11 @@ export function useDailyReport(): UseDailyReportReturn {
     phaseLabel: PHASE_LABELS[phase],
     error,
     generateReport,
+    generateReportForSales,
     uploadReport,
     saveDailyReport,
+    savePeriodReport,
     finalizeDailyReport,
+    finalizePeriodReport,
   };
 }

@@ -1,9 +1,7 @@
 /**
- * Merchant business profile shown on the printed receipt.
+ * Merchant business profile shown on payment records.
  *
- * Static for now — later this will move to a Settings page so the merchant
- * can edit it in-app. Tax rate is also configurable; 0 disables the tax
- * footer line entirely.
+ * Falls back to neutral labels when no admin config is available.
  */
 
 export interface BusinessProfile {
@@ -11,18 +9,38 @@ export interface BusinessProfile {
   addressLine1?: string
   addressLine2?: string
   phone?: string
-  /** VAT / sales tax percent (e.g. 19 for 19%). 0 hides the tax footer. */
+  /** Kept for backwards-compatible saved QR payloads. Payment records do not print tax. */
   taxRate: number
-  /** Currency label printed on the receipt — separate from the on-chain
-   *  asset symbol. Defaults to "CASH" for the test environment. */
+  /** Legacy fallback currency. Current payment records use the transaction asset symbol. */
   currency: string
 }
 
 export const BUSINESS_PROFILE: BusinessProfile = {
-  name: "Funkhaus Berlin Events GmbH",
-  addressLine1: "Nalepastraße 18",
-  addressLine2: "12459 Berlin",
-  phone: "030/12085416",
-  taxRate: 19,
+  name: "Merchant",
+  taxRate: 0,
   currency: "CASH",
+}
+
+interface AdminBusinessPayload {
+  displayName: string
+  profile?: {
+    name?: string
+    addressLine1?: string
+    addressLine2?: string
+    phone?: string
+  }
+}
+
+export function businessProfileFromAdminPayload(
+  payload: AdminBusinessPayload | null | undefined,
+): BusinessProfile {
+  if (!payload) return BUSINESS_PROFILE
+
+  return {
+    ...BUSINESS_PROFILE,
+    name: payload.profile?.name ?? payload.displayName,
+    addressLine1: payload.profile?.addressLine1,
+    addressLine2: payload.profile?.addressLine2,
+    phone: payload.profile?.phone,
+  }
 }

@@ -119,9 +119,12 @@ async function lookupPreimage(
 /**
  * Fetch JSON stored on Bulletin for a CID.
  *
- * In-host: resolve via `preimageManager.lookup` (host serves from its own
- * Bulletin node — no public HTTPS gateway). Standalone, or if the host lookup
- * yields nothing, fall back to the multi-gateway race in `readJsonFromGateway`.
+ * In-host: resolve via `preimageManager.lookup` (the host serves preimages it
+ * submitted itself). The host store can't serve a report uploaded on another
+ * device/session, or one that hasn't propagated yet — in those cases (and
+ * standalone) we fall back to the DEDICATED Parity gateway only. We never race
+ * third-party web2 gateways, so the CID never leaks off the Polkadot trust
+ * domain.
  */
 export async function fetchJsonFromBulletin<T = unknown>(cid: string): Promise<T> {
   const { isInHost } = await import("@/lib/host/detect")
@@ -135,18 +138,18 @@ export async function fetchJsonFromBulletin<T = unknown>(cid: string): Promise<T
         return JSON.parse(new TextDecoder().decode(bytes)) as T
       }
       console.warn(
-        "[Bulletin] Host preimage lookup returned null/timed out; falling back to IPFS gateway",
+        "[Bulletin] Host preimage lookup empty; falling back to the dedicated Bulletin gateway",
       )
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.warn(
-        "[Bulletin] Host preimage lookup failed; falling back to IPFS gateway:",
+        "[Bulletin] Host preimage lookup failed; falling back to the dedicated Bulletin gateway:",
         message,
       )
     }
   }
 
-  console.log("[Bulletin] Fetching from IPFS gateway, CID:", cid)
+  console.log("[Bulletin] Fetching from dedicated Bulletin gateway, CID:", cid)
   return readJsonFromGateway<T>(cid)
 }
 

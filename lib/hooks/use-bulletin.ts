@@ -41,6 +41,13 @@ export interface DailyReportTransaction {
 export interface DailyReport {
   exportDate: string;
   selectedDate: string;
+  periodKey?: string;
+  periodLabel?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  merchantId?: string;
+  merchantName?: string;
+  terminalId?: string;
   network: string;
   rpcUrl: string;
   totalTransactions: number;

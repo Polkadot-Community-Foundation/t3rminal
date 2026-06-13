@@ -25,6 +25,7 @@ import {
 import { decryptStatementData } from "./ecies";
 
 import { detectHostEnvironment } from "@/lib/host";
+import { recordCoinagePaymentPhase } from "@/lib/telemetry";
 import { generateEphemeralKeypair, generatePaymentId } from "./keys";
 import { deriveTopic } from "./topic";
 import { buildPayW3sDeeplink, normalizeAmount } from "./deeplink";
@@ -134,6 +135,8 @@ export function useCoinagePayment(
     let unsubscribe: (() => void) | null = null;
     let processed = false;
     let topupAttempts = 0;
+    let statementWaitRecorded = false;
+    const flowStartedAt = performance.now();
 
     void (async () => {
       try {
@@ -145,17 +148,25 @@ export function useCoinagePayment(
         const id = generatePaymentId();
         const topic = deriveTopic(id);
         if (cancelled) return;
+        const env = detectHostEnvironment();
 
         setPaymentId(id);
         setQrValue(
           buildPayW3sDeeplink({ id, amount: expectedAmount, publicKeyCompressed }),
         );
         setStatus("waiting");
+        recordCoinagePaymentPhase({
+          phase: "prepare",
+          startedAt: flowStartedAt,
+          paymentId: id,
+          amount: expectedAmount,
+          hostEnv: env,
+        });
+        const statementWaitStartedAt = performance.now();
 
         const store = createStatementStore();
         const manager = createPaymentManager();
 
-        const env = detectHostEnvironment();
         log(`armed: id=${id} amount=${expectedAmount} topic=0x${toHex(topic)} host=${env}`);
         if (env === "standalone") {
           // The host statement store + paymentTopUp(Coins) are host bridge calls.
@@ -179,6 +190,18 @@ export function useCoinagePayment(
             log(
               `page: ${page.statements.length} statement(s), isComplete=${page.isComplete}`,
             );
+            if (!statementWaitRecorded && page.statements.length > 0) {
+              statementWaitRecorded = true;
+              recordCoinagePaymentPhase({
+                phase: "statement_wait",
+                startedAt: statementWaitStartedAt,
+                paymentId: id,
+                amount: expectedAmount,
+                hostEnv: env,
+                statementCount: page.statements.length,
+                isComplete: page.isComplete,
+              });
+            }
 
             for (const statement of page.statements) {
               const data = statement.data;
@@ -188,6 +211,7 @@ export function useCoinagePayment(
               }
 
               let payload;
+              const decryptMatchStartedAt = performance.now();
               try {
                 ({ payload } = decryptStatementData(privateKey, data));
               } catch (err) {
@@ -196,17 +220,44 @@ export function useCoinagePayment(
                 log(
                   `  decrypt failed (len=${data.length}): ${err instanceof Error ? err.message : String(err)}`,
                 );
+                recordCoinagePaymentPhase({
+                  phase: "decrypt_match",
+                  startedAt: decryptMatchStartedAt,
+                  paymentId: id,
+                  amount: expectedAmount,
+                  hostEnv: env,
+                  outcome: "failure",
+                  reason: "decrypt_failed",
+                });
                 continue;
               }
 
               if (payload.id !== id) {
                 log(`  id mismatch: got "${payload.id}", want "${id}" — skip`);
+                recordCoinagePaymentPhase({
+                  phase: "decrypt_match",
+                  startedAt: decryptMatchStartedAt,
+                  paymentId: id,
+                  amount: expectedAmount,
+                  hostEnv: env,
+                  outcome: "failure",
+                  reason: "id_mismatch",
+                });
                 continue;
               }
               if (normalizeAmount(payload.amount) !== expectedAmount) {
                 log(
                   `  amount mismatch: got "${payload.amount}", want "${expectedAmount}" — skip`,
                 );
+                recordCoinagePaymentPhase({
+                  phase: "decrypt_match",
+                  startedAt: decryptMatchStartedAt,
+                  paymentId: id,
+                  amount: expectedAmount,
+                  hostEnv: env,
+                  outcome: "failure",
+                  reason: "amount_mismatch",
+                });
                 continue;
               }
 
@@ -214,6 +265,14 @@ export function useCoinagePayment(
               setStatus("claiming");
               const claimed = payload;
               const coinLens = claimed.coins.map((c) => c.length).join(",");
+              recordCoinagePaymentPhase({
+                phase: "decrypt_match",
+                startedAt: decryptMatchStartedAt,
+                paymentId: id,
+                amount: claimed.amount,
+                hostEnv: env,
+                coinCount: claimed.coins.length,
+              });
               log(
                 `  match! claiming ${claimed.coins.length} coin(s) [byte lengths: ${coinLens}] via paymentTopUp(Coins)`,
               );
@@ -225,6 +284,7 @@ export function useCoinagePayment(
                     paymentId: id, attempt: topupAttempts,
                   });
                 }
+                const hostTopUpStartedAt = performance.now();
                 try {
                   await withSpan(
                     "coinage topUp",
@@ -233,6 +293,22 @@ export function useCoinagePayment(
                     { "topup.attempt": String(topupAttempts) },
                   );
                   if (cancelled) return;
+                  recordCoinagePaymentPhase({
+                    phase: "host_topup",
+                    startedAt: hostTopUpStartedAt,
+                    paymentId: id,
+                    amount: claimed.amount,
+                    hostEnv: env,
+                    coinCount: claimed.coins.length,
+                  });
+                  recordCoinagePaymentPhase({
+                    phase: "total",
+                    startedAt: flowStartedAt,
+                    paymentId: id,
+                    amount: claimed.amount,
+                    hostEnv: env,
+                    coinCount: claimed.coins.length,
+                  });
                   log("  claim ok — paid");
                   setStatus("paid");
                   onPaidRef.current?.({
@@ -243,6 +319,26 @@ export function useCoinagePayment(
                   if (cancelled) return;
                   processed = false;
                   const detail = describeError(err);
+                  recordCoinagePaymentPhase({
+                    phase: "host_topup",
+                    startedAt: hostTopUpStartedAt,
+                    paymentId: id,
+                    amount: claimed.amount,
+                    hostEnv: env,
+                    coinCount: claimed.coins.length,
+                    outcome: "failure",
+                    reason: detail,
+                  });
+                  recordCoinagePaymentPhase({
+                    phase: "total",
+                    startedAt: flowStartedAt,
+                    paymentId: id,
+                    amount: claimed.amount,
+                    hostEnv: env,
+                    coinCount: claimed.coins.length,
+                    outcome: "failure",
+                    reason: detail,
+                  });
                   log(`  claim FAILED: ${detail}`);
                   console.error("[coinage] raw topUp error:", err);
                   captureWarning(`topUp failed: ${classifyTopupError(err)}`, { paymentId: id, attempt: topupAttempts });
@@ -271,6 +367,13 @@ export function useCoinagePayment(
       } catch (err) {
         if (cancelled) return;
         const detail = describeError(err);
+        recordCoinagePaymentPhase({
+          phase: "total",
+          startedAt: flowStartedAt,
+          amount,
+          outcome: "failure",
+          reason: detail,
+        });
         log(`setup FAILED: ${detail}`);
         console.error("[coinage] raw setup error:", err);
         setStatus("error");

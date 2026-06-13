@@ -3,6 +3,7 @@ import { Inter, Unbounded } from "next/font/google";
 import { Web3Provider } from "@/lib/web3";
 import { ServiceWorkerRegister } from "@/lib/components/service-worker-register";
 import { SentryTags } from "@/lib/components/sentry-tags";
+import { TestHook } from "@/lib/components/test-hook";
 import "./globals.css";
 
 const inter = Inter({
@@ -57,6 +58,7 @@ export default function RootLayout({
       >
         <Web3Provider>
           <SentryTags />
+          <TestHook />
           {children}
         </Web3Provider>
         <ServiceWorkerRegister />
