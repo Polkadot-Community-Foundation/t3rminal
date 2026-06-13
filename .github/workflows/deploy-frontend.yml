@@ -64,7 +64,10 @@ jobs:
           # bundle never falls back to a higher rate regardless of code default.
           # Raise (e.g. 0.1) only if you want a sample of transactions traced.
           NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: '1.0'
-          NEXT_PUBLIC_SENTRY_ENVIRONMENT: production
+          # This workflow runs on both push-to-main (production) AND pull_request
+          # (pr<N>- previews). Label them distinctly so the Sentry dashboard's
+          # environment dropdown can separate prod traffic from preview traffic.
+          NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
           # Contract wiring. CI has no .env.local (gitignored) and never runs
           # the contract deploy, so without these the build bakes the
           # lib/contracts/config.ts defaults. They're public values, so they
