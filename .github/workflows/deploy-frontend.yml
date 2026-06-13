@@ -1,10 +1,39 @@
-name: Deploy Frontend
+name: Deploy Frontend (Summit)
 
-# Single-job build + deploy with bulletin-deploy and a retry wrapper.
-# Production points at a FIXED `t3rminal.dot` domain (matches
-# `bulletin-deploy.config.ts`); PR previews ride a `pr<N>-` prefix on the
-# legacy `t3rminal01` base so they keep the trailing `01` the Paseo Next v2
-# DotNS rule (≥9 alphanumeric + 2 trailing digits) requires for dev signers.
+# Build the static export and publish it to Summit Bulletin, bound to DotNS.
+#
+#   push to main / workflow_dispatch  → PRODUCTION: publishes the SAME bundle to
+#                                       BOTH t3rminal.dot and terminal.dot
+#                                       (terminal.dot is an alias on the same CID).
+#   pull_request                      → PREVIEW: one pr<N>-t3rminal01.dot name
+#                                       (≥9 chars → no PoP gate on Summit DotNS).
+#
+# The contract leg (T3rminalBulletinIndex) is NOT deployed here — it is a native
+# sr25519 instantiate run once from the operator VM (see
+# guides/T3RMINAL_SUMMIT_VM_RUNBOOK.md). After that VM run, set the repo
+# variable NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS so CI bakes the right address.
+#
+# Required repo config:
+#   secret  DOTNS_MNEMONIC                     — the uploader account (5Fk8…): OWNS
+#                                                both .dot names, holds PoP-Full,
+#                                                and a LIVE Summit Bulletin storage
+#                                                authorization (expires ~13 days;
+#                                                only Summit's authorizer refreshes
+#                                                it — a failed upload? check this first).
+#   variable NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS — the VM-deployed contract address.
+#   secret  NEXT_PUBLIC_SENTRY_DSN             — optional (empty disables Sentry).
+#
+# Why these flags (Summit, learned from browse/festival):
+#   --env summit   : built into @polkadot-community-foundation/polkadot-app-deploy
+#                    (all Summit RPCs/DotNS addrs/gateway baked in).
+#   --mnemonic FLAG: routes storage signing to the AUTHORIZED account (direct
+#                    signer). The default pool accounts come from a public phrase
+#                    and are NOT Bulletin-authorized on Summit — passing the env
+#                    var alone is not enough; it must be the FLAG.
+#   --config       : the CLI only auto-discovers polkadot-app-deploy.config.*;
+#                    ours is bulletin-deploy.config.ts, so without --config the
+#                    product-manifest publish is silently skipped.
+#   NO --publish   : Summit's DotNS deployment has no Publisher registry.
 
 on:
   push:
@@ -23,8 +52,10 @@ permissions:
   pull-requests: write
 
 concurrency:
+  # Never cancel a production (on-chain) deploy mid-flight; stale PR previews are
+  # safe to supersede.
   group: deploy-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   deploy:
@@ -38,46 +69,32 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        # npm bug #4828: a lockfile generated on macOS pins macOS-only
-        # variants of optional native modules (e.g.
-        # `@rollup/rollup-darwin-arm64`) and never lists the Linux
-        # equivalents. Both `npm ci` and `npm install` then honor the
-        # lockfile and skip `@rollup/rollup-linux-x64-gnu`, which `papi`
-        # imports via rollup. The fix npm itself recommends in the error
-        # message: delete the lockfile and let `npm install` resolve fresh
-        # for this platform.
+        # npm bug #4828: a lockfile generated on macOS pins macOS-only variants
+        # of optional native modules and skips the Linux equivalents (e.g.
+        # @rollup/rollup-linux-x64-gnu, which papi imports via rollup). Delete
+        # the lockfile and resolve fresh for this platform.
         run: |
           rm -f package-lock.json
           npm install --no-audit --no-fund
 
       - name: Generate PAPI descriptors
+        # .papi/polkadot-api.json points at Summit AH; this regenerates the
+        # metadata against it (avoids BadProof at runtime).
         run: npm run papi:generate
 
       - name: Build
         run: npm run build
         env:
           NEXT_PUBLIC_COMMIT_SHA: ${{ github.sha }}
-          # NEXT_PUBLIC_* are baked into the JS bundle at build — must live on
-          # this step, not on Deploy (where they'd be a no-op).
           NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
-          # Disable automatic tracing in production — baked explicitly so the
-          # bundle never falls back to a higher rate regardless of code default.
-          # Raise (e.g. 0.1) only if you want a sample of transactions traced.
           NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: '1.0'
-          # This workflow runs on both push-to-main (production) AND pull_request
-          # (pr<N>- previews). Label them distinctly so the Sentry dashboard's
-          # environment dropdown can separate prod traffic from preview traffic.
           NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
-          # Contract wiring. CI has no .env.local (gitignored) and never runs
-          # the contract deploy, so without these the build bakes the
-          # lib/contracts/config.ts defaults. They're public values, so they
-          # live in repo *variables*, not secrets. Unset → empty string →
-          # config.ts falls back to its (paseo-next-v2) defaults, which is the
-          # safe behavior. Set the variable after a chain reset + redeploy to
-          # point CI builds at the new contract without a code change.
-          NEXT_PUBLIC_NETWORK: ${{ vars.NEXT_PUBLIC_NETWORK }}
+          # This workflow is Summit-only — network is fixed here, not via a var.
+          NEXT_PUBLIC_NETWORK: summit
+          NEXT_PUBLIC_ASSET_HUB_WS: wss://summit-asset-hub-rpc.polkadot.io
+          # Set after the VM contract deploy (Leg A). Unset → config.ts has no
+          # address and on-chain reads return empty — set this before relying on CI.
           NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS: ${{ vars.NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS }}
-          NEXT_PUBLIC_ASSET_HUB_WS: ${{ vars.NEXT_PUBLIC_ASSET_HUB_WS }}
 
       - name: Setup IPFS
         uses: ipfs/download-ipfs-distribution-action@v1
@@ -87,43 +104,51 @@ jobs:
       - run: ipfs init
 
       - name: Install deploy tool
-        run: npm install -g bulletin-deploy@latest
+        # PCF fork: carries the manifest direct-signer fix and the built-in
+        # `summit` environment. NOT the dead unscoped bulletin-deploy@latest.
+        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.10.1
 
       - name: Deploy
         uses: nick-fields/retry@v3
         with:
-          timeout_minutes: 15
+          timeout_minutes: 20
           max_attempts: 3
           retry_wait_seconds: 30
-          # Paseo Next v2 DotNS rule (dev signers, no PoP): label = ≥9
-          # alphanumeric chars + 2 trailing digits. Production `t3rminal.dot`
-          # is registered under a signer that bypasses this rule; PR previews
-          # still use a `pr<N>-` prefix on the legacy `t3rminal01` base so
-          # the trailing `01` keeps them DotNS-valid for the dev signer.
-          #
-          # BULLETIN_DEPLOY_DOMAIN is exported so `bulletin-deploy.config.ts`
-          # sees the same value the CLI is invoked with — without this the
-          # config's hardcoded default ("t3rminal.dot") would fight a
-          # PR-preview deploy and the publishManifest step aborts.
+          # PR  → one preview name. push/dispatch → both prod names on the SAME
+          # bundle: build once with the canonical id (t3rminal.dot), deploy it,
+          # then deploy terminal.dot against the same out/ — the CLI finds the
+          # content already on Bulletin and reuses the CID (terminal.dot is a
+          # contenthash alias that also gets its own product manifest).
           command: |
+            set -euo pipefail
             if [ "${{ github.event_name }}" = "pull_request" ]; then
-              DOMAIN="pr${{ github.event.pull_request.number }}-t3rminal01.dot"
+              DOMAINS="pr${{ github.event.pull_request.number }}-t3rminal01.dot"
+              CANON="pr${{ github.event.pull_request.number }}-t3rminal01.dot"
             else
-              DOMAIN="t3rminal.dot"
+              DOMAINS="t3rminal.dot terminal.dot"
+              CANON="t3rminal.dot"
             fi
-            export BULLETIN_DEPLOY_DOMAIN="$DOMAIN"
-            bulletin-deploy --publish --env paseo-next-v2 './out' "$DOMAIN"
+            # dot.li manifest id is baked into the bundle — set it to the
+            # canonical name once so both prod names ship identical bytes (one CID).
+            cp bundle/manifest.toml out/manifest.toml
+            sed -i "s/^id *= *\".*\"/id = \"${CANON}\"/" out/manifest.toml
+            for DOMAIN in $DOMAINS; do
+              echo "::group::deploy $DOMAIN"
+              export BULLETIN_DEPLOY_DOMAIN="$DOMAIN"
+              polkadot-app-deploy ./out "$DOMAIN" \
+                --env summit \
+                --mnemonic "$MNEMONIC" \
+                --config ./bulletin-deploy.config.ts \
+                --no-transfer-to-signedin-user
+              echo "::endgroup::"
+            done
         env:
           MNEMONIC: ${{ secrets.DOTNS_MNEMONIC }}
           NODE_OPTIONS: '--max-old-space-size=8192'
 
       - name: Comment on PR
-        # Skip for fork PRs: `pull_request` from a fork runs with a read-only
-        # GITHUB_TOKEN regardless of the job-level `pull-requests: write`
-        # permission (security default — avoids fork PRs writing to upstream).
-        # The `issues/<n>/comments` API returns 403 "Resource not accessible
-        # by integration" and the whole deploy job fails. Branch PRs from the
-        # same repo still get the preview comment.
+        # Skip for fork PRs: pull_request from a fork runs with a read-only
+        # GITHUB_TOKEN, so the comments API 403s and fails the job.
         if: github.event.pull_request && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7
         with:

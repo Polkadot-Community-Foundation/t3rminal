@@ -51,11 +51,24 @@ export const previewnetNetwork: NetworkConfig = {
   bulletinIndex: "",
 };
 
+// Summit network. The live contract path uses PAPI ReviveApi and the address
+// injected via NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS — chainId/rpcUrl are
+// legacy/telemetry-only (no public Summit eth-rpc). Without this entry,
+// NEXT_PUBLIC_NETWORK=summit silently falls back to paseoNetwork incl. its
+// stale contract address.
+export const summitNetwork: NetworkConfig = {
+  chainId: 420420417, // same EVM chain id as paseo-next-v2 (known collision); legacy/telemetry only
+  name: "Summit Asset Hub",
+  rpcUrl: "",
+  bulletinIndex: "",
+};
+
 // Build-time network selection. Keys match the packages/host network registry
 // keys that scripts/deploy-bulletin-index.ts writes into NEXT_PUBLIC_NETWORK.
 const NETWORKS_BY_KEY: Record<string, NetworkConfig> = {
   "paseo-next-v2": paseoNetwork,
   previewnet: previewnetNetwork,
+  summit: summitNetwork,
   local: localNetwork,
 };
 

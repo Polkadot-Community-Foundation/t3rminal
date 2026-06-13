@@ -7,13 +7,13 @@
  * propagation — fall back to a read here.
  *
  * That fallback hits ONLY the dedicated Parity-run gateway
- * (`paseo-bulletin-next-ipfs.polkadot.io`, same trust domain as the Bulletin
+ * (`summit-ipfs.polkadot.io`, same trust domain as the Bulletin
  * chain). We deliberately do NOT race third-party web2 gateways
  * (dweb.link / ipfs.io / nftstorage.link): those would leak the CID and access
  * pattern off-chain and trigger host web-domain prompts.
  */
 
-const BULLETIN_GATEWAY = "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs/" as const
+const BULLETIN_GATEWAY = "https://summit-ipfs.polkadot.io/ipfs/" as const
 
 export const BULLETIN_ENDPOINTS = {
   /** Dedicated v2 gateway — read fallback + share / "Open in IPFS" links. */
