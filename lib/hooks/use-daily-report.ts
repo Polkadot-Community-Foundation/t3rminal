@@ -149,6 +149,7 @@ function buildDailyReportFromSales(args: {
       originalBlockNumber: sale.blockNumber?.toString() || "0",
       originalBlockHash: sale.blockHash || "",
       items: sale.items,
+      tip: sale.tip,
     })),
   };
 }
