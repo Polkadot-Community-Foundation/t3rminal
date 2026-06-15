@@ -199,3 +199,18 @@ export async function shareLogs(): Promise<ShareLogsResult> {
   downloadText(text, filename);
   return "downloaded";
 }
+
+/**
+ * POST the captured logs to a backend ingest URL (e.g. the terminal-log-service
+ * `/ingest/:terminalId` endpoint). Sent as text/plain so it stays a CORS "simple"
+ * request (no preflight); the service stores the body as-is. Throws on a non-2xx response.
+ */
+export async function sendLogsTo(url: string): Promise<void> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: formatLogsAsText(),
+    keepalive: true,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
