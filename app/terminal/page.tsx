@@ -12,6 +12,7 @@ import { useQRGenerator } from "@/lib/hooks/use-qr-generator";
 import { usePaymentListener, type PaymentDetected, type PartialPayment } from "@/lib/hooks/use-payment-listener";
 import { useReceiptGenerator } from "@/lib/hooks/use-receipt-generator";
 import { useCalculator, type CalculatorOperator } from "@/lib/hooks/use-calculator";
+import { useChainConnectivity } from "@/lib/hooks/use-chain-connectivity";
 import { PUSD_ASSET_ID, PUSD_DECIMALS } from "@/lib/utils/asset-ids";
 import { useAssetSymbol, getAssetSymbol } from "@/lib/utils/asset-metadata";
 import { formatAmountFromPlanck, amountToPlanck } from "@/lib/utils/format";
@@ -84,6 +85,9 @@ function TerminalPageInner() {
   const [printMessage, setPrintMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   // Cart lines stashed by /items "Charge" — flow into the printed receipt.
   const [pendingItems, setPendingItems] = useState<StoredCartLine[]>([]);
+  // Chain reachability: periodic indicator + a pre-flight gate before issuing a QR.
+  const connectivity = useChainConnectivity();
+  const [connectivityError, setConnectivityError] = useState<string | null>(null);
 
   // Preset amount from /items "Charge" flow: ?amount=<plancks>&source=items
   // skips the keypad and jumps straight to the QR screen with that total,
@@ -441,13 +445,26 @@ function TerminalPageInner() {
     };
   }, [paymentQrLive, displayQrValue]);
 
-  const handleGenerateQR = () => {
+  const handleGenerateQR = async () => {
     const amount = calculator.getNumericResult();
     if (!account || !amount || parseFloat(amount) <= 0) {
       return;
     }
 
+    setConnectivityError(null);
     setIsGenerating(true);
+
+    // Don't hand the customer a QR we can't settle — confirm the chain is
+    // reachable right now before showing it.
+    const reachable = await connectivity.check();
+    if (!reachable) {
+      setIsGenerating(false);
+      setConnectivityError(
+        "No connection — can't reach the network to receive the payment. Check WiFi and try again.",
+      );
+      return;
+    }
+
     setFinalAmount(amount);
 
     setTimeout(() => {
@@ -696,6 +713,19 @@ function TerminalPageInner() {
                   <Delete className="w-6 h-6" />
                 </button>
               </div>
+
+              {/* Connectivity warning — periodic offline status or a blocked attempt */}
+              {(!connectivity.isOnline || connectivityError) && (
+                <div
+                  data-testid="terminal-connectivity-warning"
+                  className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-center mt-2"
+                >
+                  <p className="text-sm text-red-400 font-medium">
+                    {connectivityError ??
+                      "Offline — can't reach the network to settle a sale."}
+                  </p>
+                </div>
+              )}
 
               {/* Generate Button */}
               <button

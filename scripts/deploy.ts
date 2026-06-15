@@ -173,6 +173,41 @@ async function chooseTarget(rl: Interface): Promise<DeployTarget> {
   return target;
 }
 
+/**
+ * Optional backend the SPA POSTs debug logs to (Settings → Debug logs → Send logs).
+ * Baked into the build as NEXT_PUBLIC_LOG_INGEST_URL so the deployed SPA targets it.
+ * Defaults to the NEXT_PUBLIC_LOG_INGEST_URL / LOG_INGEST_URL env var if set.
+ */
+async function resolveLogIngestUrl(rl: Interface): Promise<string | undefined> {
+  ui.section("Log backend (optional)");
+  const fallback =
+    process.env.NEXT_PUBLIC_LOG_INGEST_URL ?? process.env.LOG_INGEST_URL ?? "";
+  const prompt = fallback
+    ? `Log-ingest URL [${fallback}] (Enter to keep, "-" to disable): `
+    : "Log-ingest URL (Enter to skip): ";
+  const answer = (await rl.question(ui.ask(prompt))).trim();
+  if (answer === "-") {
+    ui.info("Log backend disabled for this build.");
+    return undefined;
+  }
+  const url = answer || fallback;
+  if (!url) {
+    ui.info('No log backend — "Send logs" stays unconfigured.');
+    return undefined;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid log-ingest URL: ${url}`);
+  }
+  if (parsed.protocol !== "https:") {
+    ui.warn("Not https — the host WebView blocks cleartext, so the SPA send will fail in production.");
+  }
+  ui.success(`Send logs → ${url}`);
+  return url;
+}
+
 /** Format planck (smallest unit) as a trimmed human balance string, max 4 dp. */
 function formatPas(planck: bigint, decimals: number): string {
   const base = 10n ** BigInt(decimals);
@@ -224,12 +259,16 @@ function ensureContractBuilt(): void {
   if (result.status !== 0) throw new Error("build:contracts failed.");
 }
 
-function runBuild(): void {
+function runBuild(logIngestUrl?: string): void {
   ui.section("Build");
+  if (logIngestUrl) ui.step(`Targeting log backend: ${logIngestUrl}`);
   ui.step("Running next build…");
   const result = spawnSync("npm", ["run", "build"], {
     cwd: APP_ROOT,
     stdio: "inherit",
+    env: logIngestUrl
+      ? { ...process.env, NEXT_PUBLIC_LOG_INGEST_URL: logIngestUrl }
+      : process.env,
   });
   if (result.status !== 0) throw new Error("next build failed.");
   if (!existsSync(resolve(OUT_DIR, "index.html"))) {
@@ -343,7 +382,9 @@ async function main(): Promise<void> {
       await rl.question(ui.ask(`Domain to publish to [${DEFAULT_DOMAIN}]: `)),
     );
 
-    runBuild();
+    const logIngestUrl = await resolveLogIngestUrl(rl);
+
+    runBuild(logIngestUrl);
     writeManifest(domain);
     publishDapp(bulletinDeploy, target, domain, seed);
 
