@@ -13,6 +13,7 @@ import {
   downloadLogsTxt,
   type ShareLogsResult,
 } from "@/lib/debug/log-capture";
+import { useAdminQrPayload } from "@/lib/config/admin-qr";
 
 const PREVIEW_LINES = 60;
 const LOG_URL_KEY = "t3rminal.logIngestUrl";
@@ -30,6 +31,9 @@ export default function LogsPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState("");
+  const adminPayload = useAdminQrPayload();
+  // This terminal's own id — sent in a header so the ingest URL stays generic.
+  const terminalId = adminPayload?.terminalId ?? "unknown";
 
   const refresh = useCallback(() => {
     const logs = getCapturedLogs();
@@ -79,7 +83,7 @@ export default function LogsPage() {
       } catch {
         // persistence is best-effort
       }
-      await sendLogsTo(target);
+      await sendLogsTo(target, terminalId);
       setStatus("Logs sent to backend.");
     } catch (err) {
       setStatus(`Send failed: ${err instanceof Error ? err.message : "unknown error"}`);
@@ -138,12 +142,16 @@ export default function LogsPage() {
               inputMode="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://your-log-service/ingest/<terminalId>"
+              placeholder="https://your-log-service/ingest"
               spellCheck={false}
               autoCapitalize="none"
               autoCorrect="off"
               className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-neutral-600"
             />
+            <p className="text-xs text-neutral-500">
+              This terminal sends as{" "}
+              <span className="text-neutral-300 font-medium">{terminalId}</span>
+            </p>
             <button
               onClick={onSend}
               disabled={busy || count === 0 || url.trim() === ""}

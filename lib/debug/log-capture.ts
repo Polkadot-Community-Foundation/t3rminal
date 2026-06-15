@@ -199,10 +199,14 @@ export async function shareLogs(): Promise<ShareLogsResult> {
  * `/ingest/:terminalId` endpoint). Sent as text/plain so it stays a CORS "simple"
  * request (no preflight); the service stores the body as-is. Throws on a non-2xx response.
  */
-export async function sendLogsTo(url: string): Promise<void> {
+export async function sendLogsTo(url: string, terminalId?: string): Promise<void> {
+  const headers: Record<string, string> = { "Content-Type": "text/plain" };
+  // The device identifies itself in a header so the ingest URL can stay a single
+  // deployment-wide value; the service files the batch under this id.
+  if (terminalId) headers["X-Terminal-Id"] = terminalId;
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "text/plain" },
+    headers,
     body: formatLogsAsText(),
     keepalive: true,
   });
