@@ -88,9 +88,13 @@ export default function LogsPage() {
     }
   };
 
-  const onDownload = () => {
-    downloadLogsTxt();
-    setStatus("Logs saved as a .txt file.");
+  const onDownload = async () => {
+    try {
+      await downloadLogsTxt();
+      setStatus("Logs saved as a .txt file.");
+    } catch (err) {
+      setStatus(`Save failed: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
   };
 
   const onClear = () => {

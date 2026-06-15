@@ -12,6 +12,8 @@
  * reaches the buffer before hitting the real console.
  */
 
+import { saveTextFile } from "@/lib/utils/save-file";
+
 export type LogLevel = "log" | "info" | "warn" | "error" | "debug" | "event";
 
 export interface LogEntry {
@@ -133,16 +135,8 @@ export function formatLogsAsText(): string {
   return `${header}\n${lines}\n`;
 }
 
-function downloadText(text: string, filename: string): void {
-  const blob = new Blob([text], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+async function downloadText(text: string, filename: string): Promise<void> {
+  await saveTextFile(filename, text, "text/plain");
 }
 
 function logsFilename(): string {
@@ -151,8 +145,8 @@ function logsFilename(): string {
 }
 
 /** Download the captured logs as a .txt file. */
-export function downloadLogsTxt(): void {
-  downloadText(formatLogsAsText(), logsFilename());
+export async function downloadLogsTxt(): Promise<void> {
+  await downloadText(formatLogsAsText(), logsFilename());
 }
 
 export type ShareLogsResult = "shared" | "copied" | "downloaded" | "cancelled";
@@ -196,7 +190,7 @@ export async function shareLogs(): Promise<ShareLogsResult> {
   }
 
   // 3. File download.
-  downloadText(text, filename);
+  await downloadText(text, filename);
   return "downloaded";
 }
 
