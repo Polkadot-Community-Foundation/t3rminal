@@ -105,6 +105,9 @@ export function buildReportPrintDocument(report: DailyReport, kind: Extract<Prin
     const value = Number(tx.tip);
     return sum + (Number.isFinite(value) ? value : 0);
   }, 0);
+  // Items subtotal = everything minus the tips portion. Receipt-style breakdown:
+  // Subtotal (items) + Tips = Total (Gross), then Net after any refunds.
+  const itemsSubtotal = finishedTotal - tipsTotal;
   const asset = report.transactions[0]?.asset ?? "";
   const finished = report.transactions.filter((tx) => tx.status === "Finished").length;
   const refunded = report.transactions.filter((tx) => tx.status === "Refunded").length;
@@ -132,12 +135,13 @@ export function buildReportPrintDocument(report: DailyReport, kind: Extract<Prin
     // Print every distinct item — the list length is the item count itself, no
     // fixed cap. A fiscal report must show the full itemized breakdown.
     items: itemSummary,
+    // Receipt-style breakdown: Subtotal (items) + Tips = Total, mirroring the
+    // customer receipt. Refunds (when any) net down the Total.
     totals: [
-      { label: `Gross ${asset}`.trim(), value: formatMoney(String(finishedTotal)) },
-      ...(refundedTotal > 0 ? [{ label: `Refunds ${asset}`.trim(), value: `-${formatMoney(String(refundedTotal))}` }] : []),
-      { label: `Net ${asset}`.trim(), value: formatMoney(String(netTotal)) },
-      // Tips collected across the period (already included in Gross/Net).
+      { label: `Subtotal ${asset}`.trim(), value: formatMoney(String(itemsSubtotal)) },
       ...(tipsTotal > 0 ? [{ label: `Tips ${asset}`.trim(), value: formatMoney(String(tipsTotal)) }] : []),
+      ...(refundedTotal > 0 ? [{ label: `Refunds ${asset}`.trim(), value: `-${formatMoney(String(refundedTotal))}` }] : []),
+      { label: `Total ${asset}`.trim(), value: formatMoney(String(netTotal)) },
     ],
     footer: [],
   };
