@@ -52,7 +52,15 @@ export function buildCustomerReceiptPrintDocument(data: ReceiptData, qrValue?: s
       }))
     : [{ name: "Amount", quantity: "1", total: amount }];
 
+  // When a tip was added, break the grand total into Subtotal + Tip + Total.
+  const hasTip = data.tip != null && Number(data.tip) > 0;
   const totals: PrintLine[] = [
+    ...(hasTip
+      ? [
+          { label: `Subtotal ${asset}`, value: formatMoney(data.subtotal ?? data.amount) },
+          { label: `Tip ${asset}`, value: formatMoney(data.tip!) },
+        ]
+      : []),
     { label: `Total ${asset}`, value: amount },
     { label: `Paid ${asset}`, value: amount },
   ];
