@@ -99,6 +99,12 @@ export function buildReportPrintDocument(report: DailyReport, kind: Extract<Prin
     return sum + (Number.isFinite(value) ? value : 0);
   }, 0);
   const netTotal = finishedTotal - refundedTotal;
+  // Total tips across all (non-refunded) receipts in the period.
+  const tipsTotal = report.transactions.reduce((sum, tx) => {
+    if (tx.status === "Refunded") return sum;
+    const value = Number(tx.tip);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
   const asset = report.transactions[0]?.asset ?? "";
   const finished = report.transactions.filter((tx) => tx.status === "Finished").length;
   const refunded = report.transactions.filter((tx) => tx.status === "Refunded").length;
@@ -130,6 +136,8 @@ export function buildReportPrintDocument(report: DailyReport, kind: Extract<Prin
       { label: `Gross ${asset}`.trim(), value: formatMoney(String(finishedTotal)) },
       ...(refundedTotal > 0 ? [{ label: `Refunds ${asset}`.trim(), value: `-${formatMoney(String(refundedTotal))}` }] : []),
       { label: `Net ${asset}`.trim(), value: formatMoney(String(netTotal)) },
+      // Tips collected across the period (already included in Gross/Net).
+      ...(tipsTotal > 0 ? [{ label: `Tips ${asset}`.trim(), value: formatMoney(String(tipsTotal)) }] : []),
     ],
     footer: [],
   };

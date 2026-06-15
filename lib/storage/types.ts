@@ -66,6 +66,11 @@ export interface SaleRecord {
 
   /** Itemized lines, when the sale came from /items. Omitted for direct-amount sales. */
   items?: SaleItem[];
+
+  /** Tip portion of `amount` (decimal string), when the sale carried a tip.
+   *  `amount` stays the grand total; subtotal = amount − tip. Reports sum this
+   *  across receipts to show total tips. */
+  tip?: string;
 }
 
 /**

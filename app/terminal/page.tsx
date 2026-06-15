@@ -238,6 +238,7 @@ function TerminalPageInner() {
           timestamp: new Date(),
           type: 'incoming',
           items: receiptItems.length > 0 ? receiptItems : undefined,
+          tip: tipDecimal,
         });
         journeyTracker.milestone("terminal-payment", "sale-saved");
         console.log("[Terminal] Sale saved to local storage");
@@ -349,6 +350,7 @@ function TerminalPageInner() {
         finalizedAt: new Date(),
         type: "incoming",
         items: receiptItems.length > 0 ? receiptItems : undefined,
+        tip: tipDecimal,
       });
       journeyTracker.milestone("terminal-payment", "sale-saved");
     } catch (err) {
