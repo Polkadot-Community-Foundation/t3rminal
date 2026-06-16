@@ -324,7 +324,7 @@ export const SAVE_RECEIPT_DEEPLINK_HOST = "w3spay.dot"
  *
  *   polkadotapp://<host>/#/save-receipt?v=1&id=…&a=…&as=…&c=…&t=…&ts=…
  *     [&bn=…][&a1=…][&a2=…][&tel=…]&i=<name>|<qty>|<unitPrice>[&i=…]
- *     [&bh=…][&bk=…][&m=…]
+ *     [&tp=…][&bh=…][&bk=…][&m=…]
  *
  * Route + params live in the URL FRAGMENT so the in-app browser serves the
  * W3sPay SPA entry — a path segment would 404 there. Keys are abbreviated for
@@ -356,6 +356,9 @@ export function buildReceiptDeeplink(
   if (data.blockHash) params.set("bh", data.blockHash)
   if (data.blockNumber != null) params.set("bk", String(data.blockNumber))
   if (data.merchantAddress) params.set("m", data.merchantAddress)
+  // Tip rides as a decimal `tp` only when present — `a` is already the grand
+  // total (subtotal + tip), so the reader derives the subtotal as `a − tp`.
+  if (data.tip != null && Number(data.tip) > 0) params.set("tp", data.tip)
   return `polkadotapp://${host}/#/save-receipt?${params.toString()}`
 }
 

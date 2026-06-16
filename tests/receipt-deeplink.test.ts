@@ -103,4 +103,17 @@ describe("buildReceiptDeeplink", () => {
     expect(q.get("a")).toBe("1.00");
     expect(q.get("t")).toBe("0");
   });
+
+  it("carries the tip as `tp` while `a` stays the grand total", () => {
+    const q = fragmentParams(buildReceiptDeeplink({ ...data, tip: "2.50" }, business, ts));
+    expect(q.get("tp")).toBe("2.50");
+    expect(q.get("a")).toBe("14.50");
+  });
+
+  it("omits `tp` when there is no tip (absent or zero)", () => {
+    expect(fragmentParams(buildReceiptDeeplink(data, business, ts)).has("tp")).toBe(false);
+    expect(
+      fragmentParams(buildReceiptDeeplink({ ...data, tip: "0.00" }, business, ts)).has("tp"),
+    ).toBe(false);
+  });
 });

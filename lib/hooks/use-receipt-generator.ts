@@ -137,6 +137,7 @@ export function useReceiptGenerator() {
         terminalId: data.terminalId ?? adminPayload?.terminalId,
         merchantId: data.merchantId ?? adminPayload?.merchantId,
         items: data.items,
+        tip: data.tip,
       },
       business,
       timestamp,
