@@ -19,10 +19,14 @@ export default function TipsPage() {
 
 type TipMode = "none" | "5" | "10" | "custom";
 
+// Upper bound on a custom tip %. Generous (tips can exceed the bill) but bounded
+// so a stray keypress can't blow up the BigInt total.
+const MAX_TIP_PCT = 1000;
+
 function clampPct(raw: string): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return 0;
-  return Math.min(n, 100);
+  return Math.min(n, MAX_TIP_PCT);
 }
 
 function TipsPageInner() {
@@ -125,7 +129,7 @@ function TipsPageInner() {
                     type="number"
                     inputMode="decimal"
                     min={0}
-                    max={100}
+                    max={MAX_TIP_PCT}
                     step="0.5"
                     autoFocus
                     value={customPct}
