@@ -18,7 +18,7 @@ export interface BusinessProfile {
 export const BUSINESS_PROFILE: BusinessProfile = {
   name: "Merchant",
   taxRate: 0,
-  currency: "TOKEN",
+  currency: "CASH Token",
 }
 
 interface AdminBusinessPayload {
