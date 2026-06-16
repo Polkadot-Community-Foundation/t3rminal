@@ -88,6 +88,9 @@ function TerminalPageInner() {
   // Chain reachability: periodic indicator + a pre-flight gate before issuing a QR.
   const connectivity = useChainConnectivity();
   const [connectivityError, setConnectivityError] = useState<string | null>(null);
+  // Tip carried over from /tips (planck string). Drives the Subtotal/Tip/Total
+  // breakdown on the receipt; the QR `amount` already includes it.
+  const [tipPlanck, setTipPlanck] = useState<string | null>(null);
 
   // Preset amount from /items "Charge" flow: ?amount=<plancks>&source=items
   // skips the keypad and jumps straight to the QR screen with that total,
@@ -117,6 +120,9 @@ function TerminalPageInner() {
       }
     }
 
+    const tipParam = searchParams.get("tip");
+    if (tipParam && /^\d+$/.test(tipParam)) setTipPlanck(tipParam);
+
     // Journey starts here — first frame the merchant sees the QR. We measure
     // until the success screen renders (or fail/abandon). Admin identifiers
     // (when bound) are also attached so Sentry traces can be filtered per
@@ -141,6 +147,18 @@ function TerminalPageInner() {
   } : null;
 
   const qrValue = useQRGenerator(qrData);
+
+  // Decimal tip + subtotal for the receipt breakdown (only when a tip exists).
+  // `finalAmount` is the grand total; subtotal = total − tip.
+  const tipDecimal = tipPlanck && /^\d+$/.test(tipPlanck) && BigInt(tipPlanck) > 0n
+    ? formatAmountFromPlanck(tipPlanck, PUSD_DECIMALS)
+    : undefined;
+  const subtotalDecimal = tipDecimal && tipPlanck && finalAmount
+    ? formatAmountFromPlanck(
+        (amountToPlanck(finalAmount, PUSD_DECIMALS) - BigInt(tipPlanck)).toString(),
+        PUSD_DECIMALS,
+      )
+    : undefined;
 
   // Mark QR rendered as soon as we have a value to show — useful to split
   // "how fast did we generate the QR" from "how long did the customer take
@@ -224,6 +242,7 @@ function TerminalPageInner() {
           timestamp: new Date(),
           type: 'incoming',
           items: receiptItems.length > 0 ? receiptItems : undefined,
+          tip: tipDecimal,
         });
         journeyTracker.milestone("terminal-payment", "sale-saved");
         console.log("[Terminal] Sale saved to local storage");
@@ -251,6 +270,8 @@ function TerminalPageInner() {
         assetId: ASSET_ID_STR,
         saleId: payment.saleId,
         items: receiptItems.length > 0 ? receiptItems : undefined,
+        subtotal: subtotalDecimal,
+        tip: tipDecimal,
       });
 
       if (svg) {
@@ -333,6 +354,7 @@ function TerminalPageInner() {
         finalizedAt: new Date(),
         type: "incoming",
         items: receiptItems.length > 0 ? receiptItems : undefined,
+        tip: tipDecimal,
       });
       journeyTracker.milestone("terminal-payment", "sale-saved");
     } catch (err) {
@@ -353,6 +375,8 @@ function TerminalPageInner() {
       assetId: ASSET_ID_STR,
       saleId: result.paymentId,
       items: receiptItems.length > 0 ? receiptItems : undefined,
+      subtotal: subtotalDecimal,
+      tip: tipDecimal,
     });
     if (svg) {
       setSvgReceipt(svg);
@@ -522,6 +546,8 @@ function TerminalPageInner() {
       assetId: ASSET_ID_STR,
       saleId: paymentReceived.saleId,
       items: receiptItems.length > 0 ? receiptItems : undefined,
+      subtotal: subtotalDecimal,
+      tip: tipDecimal,
     });
   };
 
@@ -554,6 +580,8 @@ function TerminalPageInner() {
         terminalId: adminPayload?.terminalId,
         merchantId: adminPayload?.merchantId,
         items: receiptItems.length > 0 ? receiptItems : undefined,
+        subtotal: subtotalDecimal,
+        tip: tipDecimal,
       };
       await printHostDocument(
         buildCustomerReceiptPrintDocument(receiptData, buildReceiptQrValue(receiptData)),

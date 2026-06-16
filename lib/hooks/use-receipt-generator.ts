@@ -19,6 +19,10 @@ export interface ReceiptData {
   merchantId?: string;
   /** Optional itemized rows when the sale came from /items */
   items?: ReceiptItem[];
+  /** Items subtotal (before tip) — present when the sale carried a tip. */
+  subtotal?: string;
+  /** Tip amount added on top of the subtotal. */
+  tip?: string;
 }
 
 /**
@@ -64,6 +68,8 @@ export function useReceiptGenerator() {
         terminalId: data.terminalId ?? adminPayload?.terminalId,
         merchantId: data.merchantId ?? adminPayload?.merchantId,
         items: data.items,
+        subtotal: data.subtotal,
+        tip: data.tip,
       });
 
       setIsGenerating(false);
@@ -89,6 +95,8 @@ export function useReceiptGenerator() {
           terminalId: data.terminalId ?? adminPayload?.terminalId,
           merchantId: data.merchantId ?? adminPayload?.merchantId,
           items: data.items,
+          subtotal: data.subtotal,
+          tip: data.tip,
         });
 
         setIsGenerating(false);

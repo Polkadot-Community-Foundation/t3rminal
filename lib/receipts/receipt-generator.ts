@@ -38,6 +38,11 @@ export interface ReceiptData {
   items?: ReceiptItem[]
   /** Optional business profile override (defaults to BUSINESS_PROFILE). */
   business?: BusinessProfile
+  /** Items subtotal (before tip). When a tip is present the receipt breaks the
+   *  total into Subtotal + Tip + Total; `amount` stays the grand total. */
+  subtotal?: string
+  /** Tip amount added on top of the subtotal. Omitted/0 → no tip line. */
+  tip?: string
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -131,6 +136,12 @@ function buildRows(data: ReceiptData, business: BusinessProfile, ts: Date): Rend
   }
 
   rows.push({ type: "rule" })
+  // When a tip was added, break the grand total into Subtotal + Tip + Total.
+  const hasTip = data.tip != null && Number(data.tip) > 0
+  if (hasTip) {
+    rows.push({ type: "split", left: `Subtotal ${asset}`, right: formatMoney(data.subtotal ?? data.amount) })
+    rows.push({ type: "split", left: `Tip ${asset}`, right: formatMoney(data.tip!) })
+  }
   rows.push({ type: "split", left: `Total ${asset}`, right: formatMoney(data.amount), bold: true, size: 14 })
 
   // Payment record totals use the actual transaction asset.
