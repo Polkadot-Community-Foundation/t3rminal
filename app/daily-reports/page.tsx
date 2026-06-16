@@ -337,7 +337,7 @@ export default function DailyReportsPage() {
       <div className="flex-1 flex flex-col max-w-md mx-auto w-full pb-24">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-4">
-          <Link href="/history" className="p-2">
+          <Link href="/settings/backup" className="p-2">
             <ArrowLeft className="w-6 h-6 text-white" />
           </Link>
           <div className="flex items-center gap-2">
