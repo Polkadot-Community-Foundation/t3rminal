@@ -16,7 +16,7 @@
 
 export const PUSD_ASSET_ID = BigInt(50_000_413);
 export const PUSD_DECIMALS = 6;
-export const PUSD_SYMBOL = "TOKEN";
+export const PUSD_SYMBOL = "CASH Token";
 
 export const PUSD_LOCATION = {
   parents: 1,
