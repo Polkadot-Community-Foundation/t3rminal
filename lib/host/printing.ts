@@ -53,7 +53,16 @@ function getHostPrinter(): HostPrinter | null {
   return window.host?.ext?.printer ?? null;
 }
 
+/**
+ * Master switch for in-app printing. Disabled for this build — every print
+ * button across the app (terminal, history, daily-reports) gates on
+ * isHostPrinterAvailable(), so returning false here hides all "Print receipt"
+ * and report-print options at once. Flip to true (and redeploy) to restore it.
+ */
+const PRINTING_ENABLED = false;
+
 export async function isHostPrinterAvailable(): Promise<boolean> {
+  if (!PRINTING_ENABLED) return false;
   const printer = getHostPrinter();
   if (!printer) return false;
 

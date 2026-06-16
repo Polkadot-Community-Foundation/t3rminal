@@ -10,6 +10,7 @@
 
 import QRCode from "qrcode"
 import { BUSINESS_PROFILE, type BusinessProfile } from "@/lib/config/business"
+import { saveFile } from "@/lib/utils/save-file"
 
 export interface ReceiptItem {
   /** Display label (e.g. "Espresso") */
@@ -387,14 +388,6 @@ export function svgToDataUrl(svg: string): string {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`
 }
 
-export function downloadSVG(svg: string, filename: string = "receipt.svg") {
-  const blob = new Blob([svg], { type: "image/svg+xml" })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+export async function downloadSVG(svg: string, filename: string = "receipt.svg") {
+  await saveFile(filename, new Blob([svg], { type: "image/svg+xml" }))
 }
