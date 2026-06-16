@@ -20,9 +20,10 @@ test.describe('Home page loads via Host API', () => {
     // Once the host connection resolves, `/` auto-redirects to /items.
     await selectMerchantMode(frame);
 
-    // Bottom nav links should be visible on the merchant home.
+    // Bottom nav links should be visible on the merchant home. (Reports moved
+    // out of the nav into Settings → Reports & Backup.)
     await expect(frame.getByRole('link', { name: 'Payment', exact: true })).toBeVisible();
     await expect(frame.getByText('History')).toBeVisible();
-    await expect(frame.getByText('Reports')).toBeVisible();
+    await expect(frame.getByText('Settings')).toBeVisible();
   });
 });

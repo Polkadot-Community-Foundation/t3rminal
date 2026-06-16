@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Grid3X3, History, BookOpen, Settings } from "lucide-react";
+import { Grid3X3, History, Settings } from "lucide-react";
 
 interface BottomNavProps {
   /** When true, taps are disabled — used by the terminal while a sale is awaiting payment. */
@@ -23,7 +23,6 @@ export function BottomNav({ locked = false }: BottomNavProps) {
   const isPayment =
     currentPath === "/" || currentPath.startsWith("/items") || currentPath.startsWith("/terminal");
   const isHistory = currentPath.startsWith("/history");
-  const isReports = currentPath.startsWith("/daily-reports");
   const isSettings = currentPath.startsWith("/settings");
 
   const tab = (active: boolean) =>
@@ -45,14 +44,6 @@ export function BottomNav({ locked = false }: BottomNavProps) {
         >
           <History className="w-5 h-5" />
           <span className="text-[10px] font-medium">History</span>
-        </Link>
-        <Link
-          href="/daily-reports"
-          aria-disabled={locked}
-          className={tab(isReports)}
-        >
-          <BookOpen className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Reports</span>
         </Link>
         <Link
           href="/settings"
