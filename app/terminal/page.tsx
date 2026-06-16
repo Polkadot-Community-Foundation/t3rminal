@@ -1027,6 +1027,8 @@ function TerminalPageInner() {
           assetId: ASSET_ID_STR,
           saleId: paymentReceived.saleId,
           items: shareReceiptItems.length > 0 ? shareReceiptItems : undefined,
+          subtotal: subtotalDecimal,
+          tip: tipDecimal,
         })
       : "";
     return (
