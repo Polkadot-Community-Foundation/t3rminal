@@ -51,8 +51,8 @@ const SETTINGS_ROWS: SettingsRow[] = [
   {
     href: "/settings/backup",
     icon: CloudDownload,
-    title: "Backup & Restore",
-    description: "View your backed-up reports for this terminal and restore them locally.",
+    title: "Reports & Backup",
+    description: "Save daily reports, and restore backed-up reports for this terminal.",
   },
   {
     href: "/settings/logs",
