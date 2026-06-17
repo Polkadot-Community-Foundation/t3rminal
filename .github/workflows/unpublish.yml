@@ -1,0 +1,46 @@
+name: Unpublish from browse (Summit)
+
+# Remove a label from the on-chain Summit `browse` Publisher
+# (Publisher.unpublish, 0xf5fe0fc9…). Signed by the deploy account (5Fk8 via
+# DOTNS_MNEMONIC), which owns the label, so no PoP / rate-limit applies.
+# Idempotent: the CLI no-ops if the label is already unpublished.
+#
+# t3rminal.dot is intentionally NOT listed in browse; deploy-frontend.yml never
+# passes --publish. This workflow exists to remove an existing listing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Domain to unpublish (e.g. t3rminal.dot)"
+        required: true
+        default: "t3rminal.dot"
+
+permissions:
+  contents: read
+
+concurrency:
+  # One signer (5Fk8) signs serially on-chain — never run alongside a deploy.
+  group: deploy-summit-t3rminal
+  cancel-in-progress: false
+
+jobs:
+  unpublish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install deploy tool
+        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.11.2
+
+      - name: Unpublish ${{ inputs.domain }}
+        env:
+          MNEMONIC: ${{ secrets.DOTNS_MNEMONIC }}
+        run: |
+          set -euo pipefail
+          [ -n "$MNEMONIC" ] || { echo "::error::secrets.DOTNS_MNEMONIC (the 5Fk8 deployer mnemonic) is not set"; exit 1; }
+          polkadot-app-deploy --unpublish "${{ inputs.domain }}" --env summit --mnemonic "$MNEMONIC"
