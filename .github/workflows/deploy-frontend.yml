@@ -147,13 +147,11 @@ jobs:
             for DOMAIN in $DOMAINS; do
               echo "::group::deploy $DOMAIN"
               export BULLETIN_DEPLOY_DOMAIN="$DOMAIN"
-              # List in the Summit `browse` directory only for the PRODUCTION
-              # canonical name. Aliases (terminal.dot) and PR previews are not
-              # published — a browse listing is per product, not per alias.
+              # t3rminal must NOT be publicized in the Summit `browse` directory
+              # (operator decision): never pass --publish. The .dot content still
+              # deploys; it just isn't listed via Publisher.publish. Use the
+              # unpublish.yml workflow to remove an existing listing.
               PUBLISH=""
-              if [ "${{ github.event_name }}" != "pull_request" ] && [ "$DOMAIN" = "$CANON" ]; then
-                PUBLISH="--publish"
-              fi
               polkadot-app-deploy ./out "$DOMAIN" \
                 --env summit \
                 --mnemonic "$MNEMONIC" \
