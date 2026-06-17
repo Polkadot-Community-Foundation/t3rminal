@@ -11,6 +11,7 @@ import { getAllDailyReports, getSalesForMerchantByDate } from "@/lib/storage/dat
 import type { SaleRecord } from "@/lib/storage/types";
 import { normalizeToAssetHubAddress } from "@/lib/utils/address";
 import { captureError } from "@/lib/telemetry";
+import { saveFile } from "@/lib/utils/save-file";
 
 export default function ExportPage() {
   const { account } = useAccount();
@@ -91,7 +92,7 @@ export default function ExportPage() {
       if (rows.length === 0) throw new Error("No sales found for the selected dates");
 
       const label = dates.length === 1 ? dates[0] : `${dates[0]}_${dates.at(-1)}`;
-      downloadExportRows(rows, `t3rminal-sales-${label}.csv`);
+      await downloadExportRows(rows, `t3rminal-sales-${label}.csv`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Export failed";
       setExportError(msg);
@@ -326,7 +327,7 @@ function escCsv(val: string | null | undefined): string {
   return s;
 }
 
-function downloadExportRows(rows: ExportRow[], filename: string): void {
+async function downloadExportRows(rows: ExportRow[], filename: string): Promise<void> {
   const headers = [
     "Sale ID",
     "Timestamp",
@@ -360,15 +361,7 @@ function downloadExportRows(rows: ExportRow[], filename: string): void {
     ].map(escCsv).join(","),
   );
   const csv = [headers.join(","), ...csvRows].join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  await saveFile(filename, new Blob([csv], { type: "text/csv" }));
 }
 
 function formatYmd(d: Date): string {

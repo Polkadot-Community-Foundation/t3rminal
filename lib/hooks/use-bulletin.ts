@@ -36,6 +36,8 @@ export interface DailyReportTransaction {
   originalBlockHash: string;
   /** Itemized lines when the sale came from /items. */
   items?: DailyReportItem[];
+  /** Tip portion of this sale (decimal string). Summed across the report. */
+  tip?: string;
 }
 
 export interface DailyReport {

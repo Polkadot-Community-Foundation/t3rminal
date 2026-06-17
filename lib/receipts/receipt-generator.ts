@@ -10,6 +10,7 @@
 
 import QRCode from "qrcode"
 import { BUSINESS_PROFILE, type BusinessProfile } from "@/lib/config/business"
+import { saveFile } from "@/lib/utils/save-file"
 
 export interface ReceiptItem {
   /** Display label (e.g. "Espresso") */
@@ -37,6 +38,11 @@ export interface ReceiptData {
   items?: ReceiptItem[]
   /** Optional business profile override (defaults to BUSINESS_PROFILE). */
   business?: BusinessProfile
+  /** Items subtotal (before tip). When a tip is present the receipt breaks the
+   *  total into Subtotal + Tip + Total; `amount` stays the grand total. */
+  subtotal?: string
+  /** Tip amount added on top of the subtotal. Omitted/0 → no tip line. */
+  tip?: string
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -130,6 +136,12 @@ function buildRows(data: ReceiptData, business: BusinessProfile, ts: Date): Rend
   }
 
   rows.push({ type: "rule" })
+  // When a tip was added, break the grand total into Subtotal + Tip + Total.
+  const hasTip = data.tip != null && Number(data.tip) > 0
+  if (hasTip) {
+    rows.push({ type: "split", left: `Subtotal ${asset}`, right: formatMoney(data.subtotal ?? data.amount) })
+    rows.push({ type: "split", left: `Tip ${asset}`, right: formatMoney(data.tip!) })
+  }
   rows.push({ type: "split", left: `Total ${asset}`, right: formatMoney(data.amount), bold: true, size: 14 })
 
   // Payment record totals use the actual transaction asset.
@@ -312,7 +324,7 @@ export const SAVE_RECEIPT_DEEPLINK_HOST = "w3spay.dot"
  *
  *   polkadotapp://<host>/#/save-receipt?v=1&id=…&a=…&as=…&c=…&t=…&ts=…
  *     [&bn=…][&a1=…][&a2=…][&tel=…]&i=<name>|<qty>|<unitPrice>[&i=…]
- *     [&bh=…][&bk=…][&m=…]
+ *     [&tp=…][&bh=…][&bk=…][&m=…]
  *
  * Route + params live in the URL FRAGMENT so the in-app browser serves the
  * W3sPay SPA entry — a path segment would 404 there. Keys are abbreviated for
@@ -344,6 +356,9 @@ export function buildReceiptDeeplink(
   if (data.blockHash) params.set("bh", data.blockHash)
   if (data.blockNumber != null) params.set("bk", String(data.blockNumber))
   if (data.merchantAddress) params.set("m", data.merchantAddress)
+  // Tip rides as a decimal `tp` only when present — `a` is already the grand
+  // total (subtotal + tip), so the reader derives the subtotal as `a − tp`.
+  if (data.tip != null && Number(data.tip) > 0) params.set("tp", data.tip)
   return `polkadotapp://${host}/#/save-receipt?${params.toString()}`
 }
 
@@ -376,14 +391,6 @@ export function svgToDataUrl(svg: string): string {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`
 }
 
-export function downloadSVG(svg: string, filename: string = "receipt.svg") {
-  const blob = new Blob([svg], { type: "image/svg+xml" })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+export async function downloadSVG(svg: string, filename: string = "receipt.svg") {
+  await saveFile(filename, new Blob([svg], { type: "image/svg+xml" }))
 }

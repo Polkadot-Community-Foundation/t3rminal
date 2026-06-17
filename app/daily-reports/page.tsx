@@ -24,7 +24,8 @@ import { normalizeToAssetHubAddress } from "@/lib/utils/address";
 import type { SaleRecord } from "@/lib/storage/types";
 import { onStorageChange } from "@/lib/storage/host-storage";
 import { useBulletin, type DailyReport, type DailyReportTransaction } from "@/lib/hooks/use-bulletin";
-import { useDailyReport, type PeriodReportArgs } from "@/lib/hooks/use-daily-report";
+import { type PeriodReportArgs } from "@/lib/hooks/use-daily-report";
+import { useReportJob } from "@/lib/components/report-job-provider";
 import { useReceiptGenerator } from "@/lib/hooks/use-receipt-generator";
 import { useAccount } from "@/lib/web3";
 import { useAdminQrPayload } from "@/lib/config/admin-qr";
@@ -37,22 +38,23 @@ export default function DailyReportsPage() {
   const symbol = useAssetSymbol();
   const { readDailyReport } = useBulletin();
   const { generateSvgReceipt } = useReceiptGenerator();
+  // Report jobs run in the root-level provider so save/finalize keeps going in
+  // the background — leaving this page no longer interrupts an in-flight report.
   const {
-    savePeriodReport,
-    finalizePeriodReport,
+    runSavePeriod,
+    runFinalizePeriod,
     generateReportForSales,
-    isFinalizing,
+    activeJob,
+    isRunning,
     phaseLabel,
     error: reportActionError,
-  } = useDailyReport();
+  } = useReportJob();
   const { account } = useAccount();
   const adminPayload = useAdminQrPayload();
   // Match `useSalesHistory` — admin-configured payout address wins so reports
   // use the sales saved by the terminal under that identity.
   const merchantIdentity = adminPayload?.receivingAddress ?? account?.address;
 
-  // Which day a per-row finalize is currently running for (null = none / today).
-  const [finalizingDate, setFinalizingDate] = useState<string | null>(null);
   // Open report (from a past day) pending finalize confirmation.
   const [confirmFinalizeEntry, setConfirmFinalizeEntry] = useState<DailyReportRecord | null>(null);
   const [confirmFinalizeTarget, setConfirmFinalizeTarget] = useState<PeriodReportArgs | null>(null);
@@ -63,51 +65,34 @@ export default function DailyReportsPage() {
   // and locks the matching on-chain slot, so a "#" period (or a plain day) left
   // open when the day rolled over can still be closed. Re-deriving the slice
   // (rather than re-reading the whole day) keeps earlier finalized periods from
-  // being double-counted.
+  // being double-counted. The actual finalize runs in the background provider.
   const runFinalizePastEntry = async (entry: DailyReportRecord) => {
-    if (!merchantIdentity) return;
-    setFinalizingDate(entry.date);
-    try {
-      const merchant = normalizeToAssetHubAddress(merchantIdentity);
-      const day = entry.date.split("#")[0] ?? entry.date;
-      const dayStart = new Date(day + "T00:00:00");
-      const dayEnd = new Date(day + "T23:59:59.999");
-      const daySales = await getSalesForMerchantByDate(merchant, dayStart, dayEnd);
-      const priorClose = reports
-        .filter((r) => r.finalized && (r.date.split("#")[0] ?? r.date) === day)
-        .map((r) => new Date(r.periodClosedAt ?? r.publishedAt).getTime())
-        .reduce((max, t) => (Number.isFinite(t) ? Math.max(max, t) : max), 0);
-      const sales = priorClose > 0
-        ? daySales.filter((s) => new Date(s.timestamp).getTime() > priorClose)
-        : daySales;
-      await finalizePeriodReport({
-        date: day,
-        periodKey: entry.date,
-        merchantAddress: merchant,
-        sales,
-        periodStart: priorClose > 0 ? new Date(priorClose) : dayStart,
-        periodLabel: reportPeriodLabel(entry.date) ?? "Period 1",
-      });
-    } catch (err) {
-      console.error(`[Reports] finalize ${entry.date} failed:`, err);
-    } finally {
-      setFinalizingDate(null);
-    }
+    if (!merchantIdentity || isRunning) return;
+    const merchant = normalizeToAssetHubAddress(merchantIdentity);
+    const day = entry.date.split("#")[0] ?? entry.date;
+    const dayStart = new Date(day + "T00:00:00");
+    const dayEnd = new Date(day + "T23:59:59.999");
+    const daySales = await getSalesForMerchantByDate(merchant, dayStart, dayEnd);
+    const priorClose = reports
+      .filter((r) => r.finalized && (r.date.split("#")[0] ?? r.date) === day)
+      .map((r) => new Date(r.periodClosedAt ?? r.publishedAt).getTime())
+      .reduce((max, t) => (Number.isFinite(t) ? Math.max(max, t) : max), 0);
+    const sales = priorClose > 0
+      ? daySales.filter((s) => new Date(s.timestamp).getTime() > priorClose)
+      : daySales;
+    void runFinalizePeriod({
+      date: day,
+      periodKey: entry.date,
+      merchantAddress: merchant,
+      sales,
+      periodStart: priorClose > 0 ? new Date(priorClose) : dayStart,
+      periodLabel: reportPeriodLabel(entry.date) ?? "Period 1",
+    });
   };
 
-  const runPeriodAction = async (args: PeriodReportArgs, finalize: boolean) => {
-    setFinalizingDate(args.periodKey);
-    try {
-      if (finalize) {
-        await finalizePeriodReport(args);
-      } else {
-        await savePeriodReport(args);
-      }
-    } catch (err) {
-      console.error(`[Reports] ${finalize ? "finalize" : "update"} ${args.periodKey} failed:`, err);
-    } finally {
-      setFinalizingDate(null);
-    }
+  const runPeriodAction = (args: PeriodReportArgs, finalize: boolean) => {
+    if (finalize) void runFinalizePeriod(args);
+    else void runSavePeriod(args);
   };
 
   const handlePrintCurrentPeriod = async (args: PeriodReportArgs) => {
@@ -352,7 +337,7 @@ export default function DailyReportsPage() {
       <div className="flex-1 flex flex-col max-w-md mx-auto w-full pb-24">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-4">
-          <Link href="/history" className="p-2">
+          <Link href="/settings/backup" className="p-2">
             <ArrowLeft className="w-6 h-6 text-white" />
           </Link>
           <div className="flex items-center gap-2">
@@ -392,7 +377,7 @@ export default function DailyReportsPage() {
                 <button
                   type="button"
                   onClick={() => currentPeriod && handlePrintCurrentPeriod(currentPeriod)}
-                  disabled={!currentPeriod || !hasCurrentPeriodRecords || isFinalizing || printingReportKind !== null}
+                  disabled={!currentPeriod || !hasCurrentPeriodRecords || isRunning || printingReportKind !== null}
                   className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition border border-neutral-700 disabled:opacity-40"
                 >
                   {printingReportKind === "XReport" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
@@ -402,10 +387,10 @@ export default function DailyReportsPage() {
               <button
                 type="button"
                 onClick={() => currentPeriod && runPeriodAction(currentPeriod, false)}
-                disabled={!currentPeriod || !hasCurrentPeriodRecords || isFinalizing}
+                disabled={!currentPeriod || !hasCurrentPeriodRecords || isRunning}
                 className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-3 rounded-xl flex items-center justify-center gap-2 transition border border-neutral-700 disabled:opacity-40"
               >
-                {currentPeriod && isFinalizing && finalizingDate === currentPeriod.periodKey ? (
+                {currentPeriod && activeJob?.key === currentPeriod.periodKey ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Save className="w-4 h-4" />
@@ -426,7 +411,7 @@ export default function DailyReportsPage() {
             <button
               type="button"
               onClick={() => currentPeriod && setConfirmFinalizeTarget(currentPeriod)}
-              disabled={!currentPeriod || !hasCurrentPeriodRecords || isFinalizing}
+              disabled={!currentPeriod || !hasCurrentPeriodRecords || isRunning}
               className="w-full bg-amber-500 hover:bg-amber-400 text-black py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
             >
               <Lock className="w-4 h-4" />
@@ -534,10 +519,10 @@ export default function DailyReportsPage() {
                     <button
                       data-testid={`report-finalize-${index}`}
                       onClick={() => setConfirmFinalizeEntry(entry)}
-                      disabled={!merchantIdentity || isFinalizing}
+                      disabled={!merchantIdentity || isRunning}
                       className="mt-2 w-full bg-amber-500 hover:bg-amber-400 text-black py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
                     >
-                      {isFinalizing && finalizingDate === entry.date ? (
+                      {activeJob?.key === entry.date ? (
                         <><Loader2 className="w-4 h-4 animate-spin" /><span>{phaseLabel || "Finalizing…"}</span></>
                       ) : (
                         <><Lock className="w-4 h-4" /><span>Run Z report</span></>
@@ -571,7 +556,7 @@ export default function DailyReportsPage() {
               <button
                 type="button"
                 onClick={() => setConfirmFinalizeTarget(null)}
-                disabled={isFinalizing}
+                disabled={isRunning}
                 className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-4 rounded-xl transition disabled:opacity-40"
               >
                 Cancel
@@ -584,7 +569,7 @@ export default function DailyReportsPage() {
                   setConfirmFinalizeTarget(null);
                   void runPeriodAction(target, true);
                 }}
-                disabled={isFinalizing}
+                disabled={isRunning}
                 className="flex-1 bg-amber-500 hover:bg-amber-400 text-black py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
               >
                 <Lock className="w-4 h-4" />
@@ -615,7 +600,7 @@ export default function DailyReportsPage() {
               <button
                 type="button"
                 onClick={() => setConfirmFinalizeEntry(null)}
-                disabled={isFinalizing}
+                disabled={isRunning}
                 className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-4 rounded-xl transition disabled:opacity-40"
               >
                 Cancel
@@ -628,7 +613,7 @@ export default function DailyReportsPage() {
                   setConfirmFinalizeEntry(null);
                   void runFinalizePastEntry(entry);
                 }}
-                disabled={isFinalizing}
+                disabled={isRunning}
                 className="flex-1 bg-amber-500 hover:bg-amber-400 text-black py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-neutral-700 disabled:text-neutral-500"
               >
                 <Lock className="w-4 h-4" />

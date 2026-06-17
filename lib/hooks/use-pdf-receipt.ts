@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import { generateReceiptSVG, generateReceiptSVGWithQR, downloadSVG, type ReceiptData as SvgReceiptData } from "@/lib/receipts/receipt-generator";
+import { saveFile } from "@/lib/utils/save-file";
 
 export interface ReceiptData extends SvgReceiptData {
   assetId: string;
@@ -50,10 +51,10 @@ export function usePdfReceipt() {
     return generateReceiptSVG(data);
   };
 
-  const downloadReceiptSvg = (data: ReceiptData): void => {
+  const downloadReceiptSvg = async (data: ReceiptData): Promise<void> => {
     const svg = generateReceiptSVG(data);
     const filename = `receipt-${data.transactionId.slice(0, 8)}.svg`;
-    downloadSVG(svg, filename);
+    await downloadSVG(svg, filename);
   };
 
   const generateSvgWithQR = async (data: ReceiptData): Promise<string> => {
@@ -63,7 +64,7 @@ export function usePdfReceipt() {
   const downloadReceiptSvgWithQR = async (data: ReceiptData): Promise<void> => {
     const svg = await generateReceiptSVGWithQR(data);
     const filename = `receipt-${data.transactionId.slice(0, 8)}-qr.svg`;
-    downloadSVG(svg, filename);
+    await downloadSVG(svg, filename);
   };
 
   const generateReceipt = async (data: ReceiptData): Promise<void> => {
@@ -103,7 +104,7 @@ export function usePdfReceipt() {
       pdf.addImage(pngDataUrl, "PNG", 0, 0, pageWidth, pageHeight);
 
       const fileName = `receipt-${data.transactionId.slice(0, 8)}.pdf`;
-      pdf.save(fileName);
+      await saveFile(fileName, pdf.output("blob"));
     } catch (error) {
       console.error("Error generating PDF receipt:", error);
       throw new Error("Failed to generate receipt");

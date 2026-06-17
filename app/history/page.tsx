@@ -19,7 +19,7 @@ export default function HistoryPage() {
   const { account } = useAccount();
   const adminPayload = useAdminQrPayload();
   const { groupedSales, searchTerm, setSearchTerm, isLoading, isEmpty } = useSalesHistory();
-  const { generateSvgReceipt, downloadPdfReceipt } = useReceiptGenerator();
+  const { generateSvgReceipt, downloadPdfReceipt, buildReceiptQrValue } = useReceiptGenerator();
   const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [svgReceipt, setSvgReceipt] = useState<string | null>(null);
@@ -72,6 +72,8 @@ export default function HistoryPage() {
       assetId: sale.assetId,
       saleId: sale.saleId,
       items: sale.items,
+      subtotal: subtotalOf(sale),
+      tip: sale.tip,
     });
     if (svg) {
       setSvgReceipt(svg);
@@ -91,6 +93,8 @@ export default function HistoryPage() {
       assetId: sale.assetId,
       saleId: sale.saleId,
       items: sale.items,
+      subtotal: subtotalOf(sale),
+      tip: sale.tip,
     });
   };
 
@@ -99,7 +103,7 @@ export default function HistoryPage() {
     setIsPrintingReceipt(true);
     setPrintMessage(null);
     try {
-      await printHostDocument(buildCustomerReceiptPrintDocument({
+      const receiptData = {
         amount: sale.amount,
         asset: sale.asset,
         merchant: sale.merchantAddressNormalized ?? sale.merchantAddress,
@@ -116,7 +120,12 @@ export default function HistoryPage() {
         // Reprint from history must stamp the original sale time, not "now".
         timestamp: sale.timestamp,
         items: sale.items,
-      }));
+        subtotal: subtotalOf(sale),
+        tip: sale.tip,
+      };
+      await printHostDocument(
+        buildCustomerReceiptPrintDocument(receiptData, buildReceiptQrValue(receiptData)),
+      );
       setPrintMessage({ tone: "success", text: "Sent to printer." });
     } catch (err) {
       console.error("[Printer] Failed to print history record:", err);
@@ -294,4 +303,12 @@ export default function HistoryPage() {
       <BottomNav />
     </div>
   );
+}
+
+/** Subtotal (items before tip) for a stored sale = amount − tip. Undefined when
+ *  the sale carried no tip, so the receipt renders just a Total like before. */
+function subtotalOf(sale: SaleRecord): string | undefined {
+  if (!sale.tip || Number(sale.tip) <= 0) return undefined;
+  const sub = Number(sale.amount) - Number(sale.tip);
+  return Number.isFinite(sub) ? sub.toFixed(2) : undefined;
 }

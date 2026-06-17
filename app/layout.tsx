@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Unbounded } from "next/font/google";
 import { Web3Provider } from "@/lib/web3";
+import { ReportJobProvider } from "@/lib/components/report-job-provider";
 import { ServiceWorkerRegister } from "@/lib/components/service-worker-register";
 import { SentryTags } from "@/lib/components/sentry-tags";
 import { TestHook } from "@/lib/components/test-hook";
@@ -59,7 +60,9 @@ export default function RootLayout({
         <Web3Provider>
           <SentryTags />
           <TestHook />
-          {children}
+          <ReportJobProvider>
+            {children}
+          </ReportJobProvider>
         </Web3Provider>
         <ServiceWorkerRegister />
       </body>

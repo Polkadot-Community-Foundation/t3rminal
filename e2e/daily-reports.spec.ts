@@ -1,71 +1,49 @@
 import { merchantTest as test, expect } from './fixtures';
-import { waitForAppReady, selectMerchantMode } from './helpers';
+import { waitForAppReady, selectMerchantMode, openReports } from './helpers';
 
 test.describe('Daily reports page', () => {
   test('navigates to reports and shows header', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
 
-    // Navigate to reports via bottom nav
-    await frame.getByText('Reports').click();
+    // Reports now live under Settings → Reports & Backup → Save reports.
+    await openReports(frame);
 
     await expect(
       frame.locator('[data-testid="reports-header"]'),
     ).toBeVisible({ timeout: 30_000 });
   });
 
-  test('displays total reports count', async ({ testHost }) => {
+  test('displays the report history section', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
 
-    await frame.getByText('Reports').click();
-    await expect(
-      frame.locator('[data-testid="reports-header"]'),
-    ).toBeVisible({ timeout: 30_000 });
+    await openReports(frame);
 
-    // Reports count should be visible (may be 0 if no finalized days)
-    await expect(
-      frame.locator('[data-testid="reports-count"]'),
-    ).toBeVisible();
+    // The report history section always renders (empty or populated).
+    await expect(frame.getByText('Report history')).toBeVisible();
   });
 
   test('shows empty state or report list', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
 
-    await frame.getByText('Reports').click();
-    await expect(
-      frame.locator('[data-testid="reports-header"]'),
-    ).toBeVisible({ timeout: 30_000 });
+    await openReports(frame);
 
-    // Either the empty state or a report list should be present
-    const reportsCount = frame.locator('[data-testid="reports-count"]');
-    const countText = await reportsCount.textContent();
-    const count = parseInt(countText || '0', 10);
-
-    if (count === 0) {
-      await expect(
-        frame.locator('[data-testid="reports-empty"]'),
-      ).toBeVisible();
-    } else {
-      // At least one "View Details" button should exist
-      await expect(
-        frame.locator('[data-testid="report-view-0"]'),
-      ).toBeVisible();
-    }
+    // Either the empty state or at least one report row should be present.
+    const empty = frame.locator('[data-testid="reports-empty"]');
+    const firstReport = frame.locator('[data-testid="report-view-0"]');
+    await expect(empty.or(firstReport)).toBeVisible();
   });
 
-  test('shows the saved reports section and CSV export', async ({ testHost }) => {
+  test('CSV export is reachable from settings', async ({ testHost }) => {
     const frame = await waitForAppReady(testHost);
     await selectMerchantMode(frame);
 
-    await frame.getByText('Reports').click();
+    // CSV export moved out of the reports page into Settings → Export sales.
+    await frame.getByText('Settings').click();
     await expect(
-      frame.locator('[data-testid="reports-header"]'),
+      frame.getByText('Export sales (CSV)'),
     ).toBeVisible({ timeout: 30_000 });
-
-    // The reports page content should render.
-    await expect(frame.getByText('Saved Daily Reports')).toBeVisible();
-    await expect(frame.getByText('Export sales (CSV)')).toBeVisible();
   });
 });
