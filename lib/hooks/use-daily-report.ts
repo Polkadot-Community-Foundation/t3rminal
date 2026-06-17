@@ -10,6 +10,7 @@ import { getHostAccounts } from "@/lib/host/accounts";
 import {
   storeDailyReportViaRevive,
   getMerchantTerminal,
+  getMetadataViaRevive,
 } from "@/lib/contracts/revive-bulletin-index";
 import { useAccount } from "@/lib/web3";
 import { loadManualKey, manualKeyFingerprint } from "@/lib/crypto/manual-key";
@@ -18,6 +19,26 @@ import { journeyTracker, captureError, isExpectedError } from "@/lib/telemetry";
 import { loadAdminQrPayload } from "@/lib/config/admin-qr";
 import { isOnchainIndexingEnabled } from "@/lib/config/onchain-indexing";
 import type { T3rminalConfigQrPayloadV2 } from "@/lib/config/t3rminal-config-qr";
+
+/**
+ * Hard ceiling on a whole save/finalize run so the UI never spins forever — if
+ * the bulletin upload or the on-chain submit hangs past this, the run rejects
+ * with a clear timeout and the spinner clears. (The on-chain submit also has its
+ * own 120s inclusion watchdog; this is the outer backstop across all steps.)
+ */
+const REPORT_TIMEOUT_MS = 180_000;
+
+function withReportTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${Math.round(REPORT_TIMEOUT_MS / 1000)}s — please try again.`)),
+        REPORT_TIMEOUT_MS,
+      ),
+    ),
+  ]);
+}
 
 export interface FinalizeDayResult {
   report: DailyReport;
@@ -293,10 +314,36 @@ export function useDailyReport(): UseDailyReportReturn {
       });
 
       try {
+        const result = await withReportTimeout((async (): Promise<FinalizeDayResult> => {
         // Identity that scopes the on-chain slot + tags the local record.
         const adminPayload = await loadAdminQrPayload();
         const terminalId = adminPayload?.terminalId ?? "T3RMINAL";
         const merchantId = adminPayload?.merchantId ?? "";
+
+        // On-chain indexing gate — resolved once, reused for the pre-check and
+        // the mirror step below.
+        const onchainEnabled = await isOnchainIndexingEnabled();
+
+        // Pre-flight: a finalized slot is immutable. The contract rejects any
+        // further write, which makes the on-chain submit revert and the watcher
+        // hang. Detect it up front and fail fast with a clear message — covers
+        // both "save X over a closed day" and "re-run Z".
+        if (onchainEnabled && isInHost() && merchantId) {
+          try {
+            const meta = await getMetadataViaRevive(merchantId, terminalId, reportKey);
+            if (meta.exists && meta.finalized) {
+              throw new Error(
+                finalize
+                  ? "This report is already finalized — it can't be closed again."
+                  : "This report is already finalized and can no longer be updated.",
+              );
+            }
+          } catch (err) {
+            // Re-throw our own guard; a read failure must not block saving.
+            if (err instanceof Error && /already finalized/.test(err.message)) throw err;
+            console.warn("[DailyReport] finalized pre-check skipped (read failed):", err);
+          }
+        }
 
         // 1. Generate report from localStorage or an explicit period slice.
         const report = period
@@ -353,7 +400,6 @@ export function useDailyReport(): UseDailyReportReturn {
         // CID lives only locally. Needs a merchant+terminal identity — skip
         // gracefully if the terminal hasn't been bound to a merchant yet.
         let onChainIndexed = false;
-        const onchainEnabled = await isOnchainIndexingEnabled();
         if (onchainEnabled && isInHost() && account?.address) {
           try {
             if (!merchantId) {
@@ -419,6 +465,8 @@ export function useDailyReport(): UseDailyReportReturn {
           onChainIndexed,
           finalized: finalize,
         };
+        })(), finalize ? "Closing report" : "Saving report");
+        return result;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to save report";
         console.error("[DailyReport] Report pipeline failed:", message);
