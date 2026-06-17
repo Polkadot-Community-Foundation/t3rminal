@@ -124,6 +124,7 @@ jobs:
           # contenthash alias that also gets its own product manifest).
           command: |
             set -euo pipefail
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
               DOMAINS="pr${{ github.event.pull_request.number }}-t3rminal01.dot"
               CANON="pr${{ github.event.pull_request.number }}-t3rminal01.dot"
             else
