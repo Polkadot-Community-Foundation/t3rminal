@@ -33,7 +33,16 @@ name: Deploy Frontend (Summit)
 #   --config       : the CLI only auto-discovers polkadot-app-deploy.config.*;
 #                    ours is bulletin-deploy.config.ts, so without --config the
 #                    product-manifest publish is silently skipped.
-#   NO --publish   : Summit's DotNS deployment has no Publisher registry.
+#   --publish      : (PRODUCTION canonical name ONLY) lists the app in the Summit
+#                    `browse` directory by calling on-chain Publisher.publish(label).
+#                    Requires CLI >= 0.11.1, which is the first version that wires
+#                    Summit's Publisher (0xf5fe0fc9f4c13dfd3a4a8abd27e64eb652157494)
+#                    — on 0.11.0 and earlier, --publish was a silent no-op on
+#                    Summit. The deploy signer (5Fk8…) OWNS that Publisher, so it
+#                    publishes with no personhood (PoP) gate and no rate limit.
+#                    We publish only the canonical t3rminal.dot — a browse listing
+#                    is per PRODUCT, not per alias (terminal.dot stays unpublished).
+#                    PR previews are NOT published.
 
 on:
   push:
@@ -109,7 +118,7 @@ jobs:
       - name: Install deploy tool
         # PCF fork: carries the manifest direct-signer fix and the built-in
         # `summit` environment. NOT the dead unscoped bulletin-deploy@latest.
-        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.10.1
+        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.11.1
 
       - name: Deploy
         uses: nick-fields/retry@v3
@@ -138,11 +147,19 @@ jobs:
             for DOMAIN in $DOMAINS; do
               echo "::group::deploy $DOMAIN"
               export BULLETIN_DEPLOY_DOMAIN="$DOMAIN"
+              # List in the Summit `browse` directory only for the PRODUCTION
+              # canonical name. Aliases (terminal.dot) and PR previews are not
+              # published — a browse listing is per product, not per alias.
+              PUBLISH=""
+              if [ "${{ github.event_name }}" != "pull_request" ] && [ "$DOMAIN" = "$CANON" ]; then
+                PUBLISH="--publish"
+              fi
               polkadot-app-deploy ./out "$DOMAIN" \
                 --env summit \
                 --mnemonic "$MNEMONIC" \
                 --config ./bulletin-deploy.config.ts \
-                --no-transfer-to-signedin-user
+                --no-transfer-to-signedin-user \
+                $PUBLISH
               echo "::endgroup::"
             done
         env:
