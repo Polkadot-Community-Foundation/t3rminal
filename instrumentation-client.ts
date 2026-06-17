@@ -13,6 +13,27 @@ import { installLogCapture } from "@/lib/debug/log-capture";
 import { commonInitOptions } from "@/lib/telemetry/sentry-init";
 import { getE2eTag } from "@/lib/telemetry/e2e-tag";
 
+// ── Promise.withResolvers polyfill (old Android WebViews) ───────────
+//
+// Locked-down Sunmi terminals ship an old, non-updatable Android System
+// WebView — e.g. the Sunmi V3 renders on Chromium 101 (mid-2022).
+// `Promise.withResolvers()` only landed in Chromium 119, so the QR scanner
+// (lib/scan/*) — which uses it in its mount path — throws
+// "Promise.withResolvers is not a function" and the camera scan fails to
+// start. Install a tiny shim before any app code can call it. No-op on
+// modern engines that already have it.
+if (typeof Promise.withResolvers !== "function") {
+  Promise.withResolvers = function withResolvers<T>(): PromiseWithResolvers<T> {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
 // Mirror every console.* call (and uncaught errors) into an in-memory buffer
 // so Settings → Debug logs can export them — phones in the host webview have
 // no dev console. Installed first so it sits beneath every other wrapper and

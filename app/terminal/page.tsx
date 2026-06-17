@@ -12,6 +12,7 @@ import { useQRGenerator } from "@/lib/hooks/use-qr-generator";
 import { usePaymentListener, type PaymentDetected, type PartialPayment } from "@/lib/hooks/use-payment-listener";
 import { useReceiptGenerator } from "@/lib/hooks/use-receipt-generator";
 import { useCalculator, type CalculatorOperator } from "@/lib/hooks/use-calculator";
+import { useChainConnectivity } from "@/lib/hooks/use-chain-connectivity";
 import { PUSD_ASSET_ID, PUSD_DECIMALS } from "@/lib/utils/asset-ids";
 import { useAssetSymbol, getAssetSymbol } from "@/lib/utils/asset-metadata";
 import { formatAmountFromPlanck, amountToPlanck } from "@/lib/utils/format";
@@ -32,6 +33,7 @@ import {
   type CoinagePaymentResult,
 } from "@/lib/payments/coinage";
 import { isHostPrinterAvailable, printHostDocument } from "@/lib/host/printing";
+import { publishNfcPaymentDeeplink, stopNfcEmitting } from "@/lib/host/nfc";
 import { buildCustomerReceiptPrintDocument } from "@/lib/receipts/thermal-print";
 import { businessProfileFromAdminPayload } from "@/lib/config/business";
 
@@ -83,6 +85,12 @@ function TerminalPageInner() {
   const [printMessage, setPrintMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   // Cart lines stashed by /items "Charge" — flow into the printed receipt.
   const [pendingItems, setPendingItems] = useState<StoredCartLine[]>([]);
+  // Chain reachability: periodic indicator + a pre-flight gate before issuing a QR.
+  const connectivity = useChainConnectivity();
+  const [connectivityError, setConnectivityError] = useState<string | null>(null);
+  // Tip carried over from /tips (planck string). Drives the Subtotal/Tip/Total
+  // breakdown on the receipt; the QR `amount` already includes it.
+  const [tipPlanck, setTipPlanck] = useState<string | null>(null);
 
   // Preset amount from /items "Charge" flow: ?amount=<plancks>&source=items
   // skips the keypad and jumps straight to the QR screen with that total,
@@ -112,6 +120,9 @@ function TerminalPageInner() {
       }
     }
 
+    const tipParam = searchParams.get("tip");
+    if (tipParam && /^\d+$/.test(tipParam)) setTipPlanck(tipParam);
+
     // Journey starts here — first frame the merchant sees the QR. We measure
     // until the success screen renders (or fail/abandon). Admin identifiers
     // (when bound) are also attached so Sentry traces can be filtered per
@@ -136,6 +147,18 @@ function TerminalPageInner() {
   } : null;
 
   const qrValue = useQRGenerator(qrData);
+
+  // Decimal tip + subtotal for the receipt breakdown (only when a tip exists).
+  // `finalAmount` is the grand total; subtotal = total − tip.
+  const tipDecimal = tipPlanck && /^\d+$/.test(tipPlanck) && BigInt(tipPlanck) > 0n
+    ? formatAmountFromPlanck(tipPlanck, PUSD_DECIMALS)
+    : undefined;
+  const subtotalDecimal = tipDecimal && tipPlanck && finalAmount
+    ? formatAmountFromPlanck(
+        (amountToPlanck(finalAmount, PUSD_DECIMALS) - BigInt(tipPlanck)).toString(),
+        PUSD_DECIMALS,
+      )
+    : undefined;
 
   // Mark QR rendered as soon as we have a value to show — useful to split
   // "how fast did we generate the QR" from "how long did the customer take
@@ -219,6 +242,7 @@ function TerminalPageInner() {
           timestamp: new Date(),
           type: 'incoming',
           items: receiptItems.length > 0 ? receiptItems : undefined,
+          tip: tipDecimal,
         });
         journeyTracker.milestone("terminal-payment", "sale-saved");
         console.log("[Terminal] Sale saved to local storage");
@@ -246,6 +270,8 @@ function TerminalPageInner() {
         assetId: ASSET_ID_STR,
         saleId: payment.saleId,
         items: receiptItems.length > 0 ? receiptItems : undefined,
+        subtotal: subtotalDecimal,
+        tip: tipDecimal,
       });
 
       if (svg) {
@@ -328,6 +354,7 @@ function TerminalPageInner() {
         finalizedAt: new Date(),
         type: "incoming",
         items: receiptItems.length > 0 ? receiptItems : undefined,
+        tip: tipDecimal,
       });
       journeyTracker.milestone("terminal-payment", "sale-saved");
     } catch (err) {
@@ -348,6 +375,8 @@ function TerminalPageInner() {
       assetId: ASSET_ID_STR,
       saleId: result.paymentId,
       items: receiptItems.length > 0 ? receiptItems : undefined,
+      subtotal: subtotalDecimal,
+      tip: tipDecimal,
     });
     if (svg) {
       setSvgReceipt(svg);
@@ -418,13 +447,48 @@ function TerminalPageInner() {
     if (paymentIncoming) setShowCancelModal(false);
   }, [coinage.status, partial, paymentReceived, useCoins]);
 
-  const handleGenerateQR = () => {
+  // Mirror the on-screen payment QR onto the host NFC tag (HCE) when the host
+  // exposes one, so a customer can tap-to-pay instead of scanning. Same deeplink
+  // as the QR (payment only — never the receipt). Emits only while the QR is
+  // actually presented; cleared the moment a payment starts arriving, the sale
+  // ends, the deeplink changes, or we unmount. No-ops when the host has no NFC.
+  const paymentQrLive =
+    saleInProgress &&
+    !!displayQrValue &&
+    !paymentReceived &&
+    !partial &&
+    !(useCoins && (coinage.status === "claiming" || coinage.status === "paid"));
+
+  useEffect(() => {
+    if (!paymentQrLive || !displayQrValue) return;
+    void publishNfcPaymentDeeplink(displayQrValue).catch((err) => {
+      console.warn("[NFC] payment deeplink publish failed:", err);
+    });
+    return () => {
+      void stopNfcEmitting();
+    };
+  }, [paymentQrLive, displayQrValue]);
+
+  const handleGenerateQR = async () => {
     const amount = calculator.getNumericResult();
     if (!account || !amount || parseFloat(amount) <= 0) {
       return;
     }
 
+    setConnectivityError(null);
     setIsGenerating(true);
+
+    // Don't hand the customer a QR we can't settle — confirm the chain is
+    // reachable right now before showing it.
+    const reachable = await connectivity.check();
+    if (!reachable) {
+      setIsGenerating(false);
+      setConnectivityError(
+        "No connection — can't reach the network to receive the payment. Check WiFi and try again.",
+      );
+      return;
+    }
+
     setFinalAmount(amount);
 
     setTimeout(() => {
@@ -482,6 +546,8 @@ function TerminalPageInner() {
       assetId: ASSET_ID_STR,
       saleId: paymentReceived.saleId,
       items: receiptItems.length > 0 ? receiptItems : undefined,
+      subtotal: subtotalDecimal,
+      tip: tipDecimal,
     });
   };
 
@@ -497,7 +563,7 @@ function TerminalPageInner() {
     setIsPrintingReceipt(true);
     setPrintMessage(null);
     try {
-      await printHostDocument(buildCustomerReceiptPrintDocument({
+      const receiptData = {
         amount: formatAmountFromPlanck(paymentReceived.amount, PUSD_DECIMALS),
         asset: getAssetSymbol(),
         merchant: normalizeToAssetHubAddress(receivingAddress),
@@ -514,7 +580,12 @@ function TerminalPageInner() {
         terminalId: adminPayload?.terminalId,
         merchantId: adminPayload?.merchantId,
         items: receiptItems.length > 0 ? receiptItems : undefined,
-      }));
+        subtotal: subtotalDecimal,
+        tip: tipDecimal,
+      };
+      await printHostDocument(
+        buildCustomerReceiptPrintDocument(receiptData, buildReceiptQrValue(receiptData)),
+      );
       setPrintMessage({ tone: "success", text: "Sent to printer." });
     } catch (err) {
       console.error("[Printer] Failed to print receipt:", err);
@@ -670,6 +741,19 @@ function TerminalPageInner() {
                   <Delete className="w-6 h-6" />
                 </button>
               </div>
+
+              {/* Connectivity warning — periodic offline status or a blocked attempt */}
+              {(!connectivity.isOnline || connectivityError) && (
+                <div
+                  data-testid="terminal-connectivity-warning"
+                  className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-center mt-2"
+                >
+                  <p className="text-sm text-red-400 font-medium">
+                    {connectivityError ??
+                      "Offline — can't reach the network to settle a sale."}
+                  </p>
+                </div>
+              )}
 
               {/* Generate Button */}
               <button
@@ -943,6 +1027,8 @@ function TerminalPageInner() {
           assetId: ASSET_ID_STR,
           saleId: paymentReceived.saleId,
           items: shareReceiptItems.length > 0 ? shareReceiptItems : undefined,
+          subtotal: subtotalDecimal,
+          tip: tipDecimal,
         })
       : "";
     return (

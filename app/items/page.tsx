@@ -67,7 +67,9 @@ export default function ItemsPage() {
     // Stash the cart so the terminal can render itemized rows on the receipt.
     savePendingSale(cart.lines, cart.totalPlanks)
     journeyTracker.milestone("items-checkout", "cart-persisted")
-    router.push(`/terminal?amount=${cart.totalPlanks.toString()}&source=items`)
+    // Tips step sits between item selection and the QR — it forwards the chosen
+    // total (subtotal + tip) on to /terminal.
+    router.push(`/tips?subtotal=${cart.totalPlanks.toString()}`)
     journeyTracker.complete("items-checkout")
   }
 

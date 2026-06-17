@@ -39,7 +39,7 @@ function businessHeader(business: BusinessProfile): PrintLine[] {
   ];
 }
 
-export function buildCustomerReceiptPrintDocument(data: ReceiptData): PrintDocument {
+export function buildCustomerReceiptPrintDocument(data: ReceiptData, qrValue?: string): PrintDocument {
   const ts = data.timestamp ? new Date(data.timestamp) : new Date();
   const business = data.business ?? BUSINESS_PROFILE;
   const amount = formatMoney(data.amount);
@@ -52,7 +52,15 @@ export function buildCustomerReceiptPrintDocument(data: ReceiptData): PrintDocum
       }))
     : [{ name: "Amount", quantity: "1", total: amount }];
 
+  // When a tip was added, break the grand total into Subtotal + Tip + Total.
+  const hasTip = data.tip != null && Number(data.tip) > 0;
   const totals: PrintLine[] = [
+    ...(hasTip
+      ? [
+          { label: `Subtotal ${asset}`, value: formatMoney(data.subtotal ?? data.amount) },
+          { label: `Tip ${asset}`, value: formatMoney(data.tip!) },
+        ]
+      : []),
     { label: `Total ${asset}`, value: amount },
     { label: `Paid ${asset}`, value: amount },
   ];
@@ -69,6 +77,11 @@ export function buildCustomerReceiptPrintDocument(data: ReceiptData): PrintDocum
     ],
     items,
     totals,
+    // Same save-receipt deeplink the SVG/download receipt embeds — lets a
+    // scanner (or the Polkadot host) rebuild the receipt offline.
+    // moduleSize kept small so the QR fits within 58mm paper (no default —
+    // the host's default renders too wide and clips at the right margin).
+    qr: qrValue ? { data: qrValue, label: "Scan QR in W3SPay", moduleSize: 4 } : undefined,
     footer: ["Thank you"],
   };
 }
@@ -86,6 +99,15 @@ export function buildReportPrintDocument(report: DailyReport, kind: Extract<Prin
     return sum + (Number.isFinite(value) ? value : 0);
   }, 0);
   const netTotal = finishedTotal - refundedTotal;
+  // Total tips across all (non-refunded) receipts in the period.
+  const tipsTotal = report.transactions.reduce((sum, tx) => {
+    if (tx.status === "Refunded") return sum;
+    const value = Number(tx.tip);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+  // Items subtotal = everything minus the tips portion. Receipt-style breakdown:
+  // Subtotal (items) + Tips = Total (Gross), then Net after any refunds.
+  const itemsSubtotal = finishedTotal - tipsTotal;
   const asset = report.transactions[0]?.asset ?? "";
   const finished = report.transactions.filter((tx) => tx.status === "Finished").length;
   const refunded = report.transactions.filter((tx) => tx.status === "Refunded").length;
@@ -113,10 +135,13 @@ export function buildReportPrintDocument(report: DailyReport, kind: Extract<Prin
     // Print every distinct item — the list length is the item count itself, no
     // fixed cap. A fiscal report must show the full itemized breakdown.
     items: itemSummary,
+    // Receipt-style breakdown: Subtotal (items) + Tips = Total, mirroring the
+    // customer receipt. Refunds (when any) net down the Total.
     totals: [
-      { label: `Gross ${asset}`.trim(), value: formatMoney(String(finishedTotal)) },
+      { label: `Subtotal ${asset}`.trim(), value: formatMoney(String(itemsSubtotal)) },
+      ...(tipsTotal > 0 ? [{ label: `Tips ${asset}`.trim(), value: formatMoney(String(tipsTotal)) }] : []),
       ...(refundedTotal > 0 ? [{ label: `Refunds ${asset}`.trim(), value: `-${formatMoney(String(refundedTotal))}` }] : []),
-      { label: `Net ${asset}`.trim(), value: formatMoney(String(netTotal)) },
+      { label: `Total ${asset}`.trim(), value: formatMoney(String(netTotal)) },
     ],
     footer: [],
   };

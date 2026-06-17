@@ -46,6 +46,24 @@ export async function selectMerchantMode(
 }
 
 /**
+ * Reports are no longer in the bottom nav — they live under
+ * Settings → Reports & Backup → Save reports. Walk that path and wait for the
+ * reports header.
+ */
+export async function openReports(
+  frame: FrameLocator,
+  options?: { timeout?: number },
+): Promise<void> {
+  const timeout = options?.timeout ?? 30_000;
+  await frame.getByText('Settings').click();
+  await frame.getByText('Reports & Backup').click();
+  await frame.getByText('Save reports').click();
+  await frame
+    .locator('[data-testid="reports-header"]')
+    .waitFor({ state: 'visible', timeout });
+}
+
+/**
  * Open the manual-amount keypad terminal (`/terminal`).
  *
  * The keypad is no longer reachable by a tap — the bottom-nav "Payment" goes
