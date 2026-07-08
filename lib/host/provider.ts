@@ -33,7 +33,7 @@ export const PASEO_ASSET_HUB_GENESIS =
 // scripts/deploy-bulletin-index.ts writes NEXT_PUBLIC_ASSET_HUB_WS into
 // .env.local; unset falls back to Summit Asset Hub.
 export const PASEO_ASSET_HUB_WS =
-  process.env.NEXT_PUBLIC_ASSET_HUB_WS ?? "wss://summit-asset-hub-rpc.polkadot.io"
+  process.env.NEXT_PUBLIC_ASSET_HUB_WS ?? "wss://paseo-asset-hub-next-rpc.polkadot.io"
 
 // Bulletin chain access goes through host `preimageManager.submit` (see
 // lib/bulletin/client.ts) — the host's local signer is the only path that
