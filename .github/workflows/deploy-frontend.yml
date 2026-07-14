@@ -1,4 +1,4 @@
-name: Deploy Frontend (Summit)
+name: Deploy Frontend (devnet)
 
 # Build the static export and publish it to Summit Bulletin, bound to DotNS.
 #

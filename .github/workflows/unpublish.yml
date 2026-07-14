@@ -1,4 +1,4 @@
-name: Unpublish from browse (Summit)
+name: Unpublish from browse (devnet)
 
 # Remove a label from the on-chain Summit `browse` Publisher
 # (Publisher.unpublish, 0xf5fe0fc9…). Signed by the deploy account (5Fk8 via
@@ -21,7 +21,7 @@ permissions:
 
 concurrency:
   # One signer (5Fk8) signs serially on-chain — never run alongside a deploy.
-  group: deploy-summit-t3rminal
+  group: deploy-devnet-t3rminal
   cancel-in-progress: false
 
 jobs:
