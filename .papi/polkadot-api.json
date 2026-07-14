@@ -3,10 +3,10 @@
   "descriptorPath": ".papi/descriptors",
   "entries": {
     "paseo_asset_hub": {
-      "wsUrl": "wss://summit-asset-hub-rpc.polkadot.io",
+      "wsUrl": "wss://asset-hub-paseo-rpc.n.dwellir.com",
       "metadata": ".papi/metadata/paseo_asset_hub.scale",
-      "genesis": "0xf388dc6d6cdf6fb77eac3c4a91f31bc0c8642b142f1a757512ab7849f9f70660",
-      "codeHash": "0x5083c186e4218b420a12dbb26b3624befa233185adff12d5edf68e3a320518a3"
+      "genesis": "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
+      "codeHash": "0xaba3d61e25e728f0b588ef708c6cd2a446d0c49b1398dd0f6ac96c0ae1c80462"
     }
   }
 }
