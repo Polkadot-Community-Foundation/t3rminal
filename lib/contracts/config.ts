@@ -63,12 +63,25 @@ export const summitNetwork: NetworkConfig = {
   bulletinIndex: "",
 };
 
+// Devnet — public products devnet on standard Paseo Asset Hub (chain 1000).
+// The live contract path uses PAPI ReviveApi and the address injected via
+// NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS; the bulletinIndex here has no stable
+// default and is supplied per-deploy. Unlike Summit there is a public
+// Asset Hub eth-rpc, so chainId/rpcUrl carry real values (legacy/telemetry).
+export const devnetNetwork: NetworkConfig = {
+  chainId: 420420417,
+  name: "Paseo Asset Hub (devnet)",
+  rpcUrl: "https://paseo-assethub-rpc.laissez-faire.trade",
+  bulletinIndex: "",
+};
+
 // Build-time network selection. Keys match the packages/host network registry
 // keys that scripts/deploy-bulletin-index.ts writes into NEXT_PUBLIC_NETWORK.
 const NETWORKS_BY_KEY: Record<string, NetworkConfig> = {
   "paseo-next-v2": paseoNetwork,
   previewnet: previewnetNetwork,
   summit: summitNetwork,
+  devnet: devnetNetwork,
   local: localNetwork,
 };
 
