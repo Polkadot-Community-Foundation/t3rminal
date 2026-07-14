@@ -35,7 +35,7 @@ jobs:
           node-version: "22"
 
       - name: Install deploy tool
-        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.11.2
+        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.12.1
 
       - name: Unpublish ${{ inputs.domain }}
         env:
