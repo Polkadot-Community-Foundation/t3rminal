@@ -13,7 +13,7 @@
  * pattern off-chain and trigger host web-domain prompts.
  */
 
-const BULLETIN_GATEWAY = "https://summit-ipfs.polkadot.io/ipfs/" as const
+const BULLETIN_GATEWAY = "https://devnet-ipfs.api.polkadotcommunity.foundation/ipfs/" as const
 
 export const BULLETIN_ENDPOINTS = {
   /** Dedicated v2 gateway — read fallback + share / "Open in IPFS" links. */

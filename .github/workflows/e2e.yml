@@ -44,6 +44,7 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+          NEXT_PUBLIC_NETWORK: devnet
 
       - name: Upload Playwright report
         if: always()
