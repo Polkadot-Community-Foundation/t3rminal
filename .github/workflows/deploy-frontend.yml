@@ -177,5 +177,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `**${domain}.dot** · [logs](${runUrl})\n\nhttps://${domain}.dot.li`
+              body: `**${domain}.dot** · [logs](${runUrl})\n\nhttps://${domain}.dev-dot.li`
             });
