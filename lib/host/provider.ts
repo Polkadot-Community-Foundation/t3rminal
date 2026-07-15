@@ -30,7 +30,7 @@ export const PASEO_INDIVIDUALITY_GENESIS = (
 // People/individuality WS default, per target network.
 export const PASEO_INDIVIDUALITY_WS = IS_DEVNET
   ? "wss://people-paseo.rotko.net"
-  : "wss://summit-people-rpc.polkadot.io"
+  : "wss://people-paseo.rotko.net"
 
 // Asset Hub — Revive contracts (T3rminalBulletinIndex). Genesis per
 // SUMMIT_PLATFORM_PREREQUISITES (Summit) / standard Paseo AH (devnet). Constant
@@ -48,7 +48,7 @@ export const PASEO_ASSET_HUB_GENESIS = (
 // scripts/deploy-bulletin-index.ts writes NEXT_PUBLIC_ASSET_HUB_WS into
 // .env.local; unset falls back to Summit Asset Hub.
 export const PASEO_ASSET_HUB_WS =
-  process.env.NEXT_PUBLIC_ASSET_HUB_WS ?? "wss://paseo-asset-hub-next-rpc.polkadot.io"
+  process.env.NEXT_PUBLIC_ASSET_HUB_WS ?? "wss://asset-hub-paseo-rpc.n.dwellir.com"
 
 // Bulletin chain access goes through host `preimageManager.submit` (see
 // lib/bulletin/client.ts) — the host's local signer is the only path that
