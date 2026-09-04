@@ -71,7 +71,7 @@ export const summitNetwork: NetworkConfig = {
 export const devnetNetwork: NetworkConfig = {
   chainId: 420420417,
   name: "Paseo Asset Hub (devnet)",
-  rpcUrl: "https://paseo-assethub-rpc.laissez-faire.trade",
+  rpcUrl: "https://eth-rpc-testnet.polkadot.io",
   bulletinIndex: "",
 };
 
