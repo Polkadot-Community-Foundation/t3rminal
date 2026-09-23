@@ -1,48 +1,37 @@
 name: Deploy Frontend (devnet)
 
-# Build the static export and publish it to Summit Bulletin, bound to DotNS.
+# Build the static export and publish it to devnet Bulletin, bound to DotNS.
 #
 #   push to main / workflow_dispatch  → PRODUCTION: publishes the SAME bundle to
 #                                       BOTH t3rminal.dot and terminal.dot
 #                                       (terminal.dot is an alias on the same CID).
 #   pull_request                      → PREVIEW: one pr<N>-t3rminal01.dot name
-#                                       (≥9 chars → no PoP gate on Summit DotNS).
+#                                       (≥9 chars → no PoP gate on DotNS).
 #
-# The contract leg (T3rminalBulletinIndex) is NOT deployed here — it is a native
-# sr25519 instantiate run once from the operator VM (see
-# guides/T3RMINAL_SUMMIT_VM_RUNBOOK.md). After that VM run, set the repo
-# variable NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS so CI bakes the right address.
+# The contract leg (T3rminalBulletinIndex) is NOT deployed here. The repo
+# variable NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS carries the devnet address
+# (0xf94229a0…) so CI bakes it in.
 #
 # Required repo config:
 #   secret  DOTNS_MNEMONIC                     — the uploader account (5Fk8…): OWNS
-#                                                both .dot names, holds PoP-Full,
-#                                                and a LIVE Summit Bulletin storage
-#                                                authorization (expires ~13 days;
-#                                                only Summit's authorizer refreshes
-#                                                it — a failed upload? check this first).
-#   variable NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS — the VM-deployed contract address.
+#                                                both .dot names and holds a live
+#                                                devnet Bulletin storage authorization
+#                                                (a failed upload? check this first).
+#   variable NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS — the devnet contract address.
 #   secret  NEXT_PUBLIC_SENTRY_DSN             — optional (empty disables Sentry).
 #
-# Why these flags (Summit, learned from browse/festival):
-#   --env paseo-next   : built into @polkadot-community-foundation/polkadot-app-deploy
-#                    (all Summit RPCs/DotNS addrs/gateway baked in).
+# Why these flags:
+#   --env devnet   : built into @polkadot-community-foundation/polkadot-app-deploy
+#                    (devnet RPCs, DotNS v0.8.0 addresses, dev-dot.li gateway).
 #   --mnemonic FLAG: routes storage signing to the AUTHORIZED account (direct
 #                    signer). The default pool accounts come from a public phrase
-#                    and are NOT Bulletin-authorized on Summit — passing the env
-#                    var alone is not enough; it must be the FLAG.
+#                    and are NOT Bulletin-authorized — passing the env var alone
+#                    is not enough; it must be the FLAG.
 #   --config       : the CLI only auto-discovers polkadot-app-deploy.config.*;
 #                    ours is bulletin-deploy.config.ts, so without --config the
 #                    product-manifest publish is silently skipped.
-#   --publish      : (PRODUCTION canonical name ONLY) lists the app in the Summit
-#                    `browse` directory by calling on-chain Publisher.publish(label).
-#                    Requires CLI >= 0.11.1, which is the first version that wires
-#                    Summit's Publisher (0xf5fe0fc9f4c13dfd3a4a8abd27e64eb652157494)
-#                    — on 0.11.0 and earlier, --publish was a silent no-op on
-#                    Summit. The deploy signer (5Fk8…) OWNS that Publisher, so it
-#                    publishes with no personhood (PoP) gate and no rate limit.
-#                    We publish only the canonical t3rminal.dot — a browse listing
-#                    is per PRODUCT, not per alias (terminal.dot stays unpublished).
-#                    PR previews are NOT published.
+#   no --publish   : t3rminal is not listed in the browse directory (operator
+#                    decision); only the terminal.dot alias is listed, by hand.
 
 on:
   push:
@@ -87,7 +76,7 @@ jobs:
           npm install --no-audit --no-fund
 
       - name: Generate PAPI descriptors
-        # .papi/polkadot-api.json points at Summit AH; this regenerates the
+        # .papi/polkadot-api.json points at devnet (Paseo) AH; this regenerates the
         # metadata against it (avoids BadProof at runtime).
         run: npm run papi:generate
 
@@ -101,11 +90,11 @@ jobs:
           # live preview domain (not pinned in the app). Label them distinctly so
           # the Sentry dashboard can separate prod traffic from preview traffic.
           NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
-          # This workflow is Summit-only — network is fixed here, not via a var.
+          # This workflow is devnet-only — network is fixed here, not via a var.
           NEXT_PUBLIC_NETWORK: devnet
           NEXT_PUBLIC_ASSET_HUB_WS: wss://asset-hub-paseo-rpc.n.dwellir.com
-          # Set after the VM contract deploy (Leg A). Unset → config.ts has no
-          # address and on-chain reads return empty — set this before relying on CI.
+          # Devnet T3rminalBulletinIndex. Unset → config.ts has no address and
+          # on-chain reads return empty.
           NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS: ${{ vars.NEXT_PUBLIC_BULLETIN_INDEX_ADDRESS }}
 
       - name: Setup IPFS
@@ -116,9 +105,8 @@ jobs:
       - run: ipfs init
 
       - name: Install deploy tool
-        # PCF fork: carries the manifest direct-signer fix and the built-in
-        # `summit` environment. NOT the dead unscoped bulletin-deploy@latest.
-        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.12.1
+        # PCF fork: carries the devnet environment (DotNS v0.8.0 addresses).
+        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.16.7
 
       - name: Deploy
         uses: nick-fields/retry@v3
@@ -147,7 +135,7 @@ jobs:
             for DOMAIN in $DOMAINS; do
               echo "::group::deploy $DOMAIN"
               export BULLETIN_DEPLOY_DOMAIN="$DOMAIN"
-              # t3rminal must NOT be publicized in the Summit `browse` directory
+              # t3rminal must NOT be publicized in the `browse` directory
               # (operator decision): never pass --publish. The .dot content still
               # deploys; it just isn't listed via Publisher.publish. Use the
               # unpublish.yml workflow to remove an existing listing.

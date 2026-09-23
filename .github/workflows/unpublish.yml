@@ -1,7 +1,7 @@
 name: Unpublish from browse (devnet)
 
-# Remove a label from the on-chain Summit `browse` Publisher
-# (Publisher.unpublish, 0xf5fe0fc9…). Signed by the deploy account (5Fk8 via
+# Remove a label from the on-chain devnet `browse` Publisher
+# (Publisher.unpublish, 0xaab42efb…). Signed by the deploy account (5Fk8 via
 # DOTNS_MNEMONIC), which owns the label, so no PoP / rate-limit applies.
 # Idempotent: the CLI no-ops if the label is already unpublished.
 #
@@ -35,7 +35,7 @@ jobs:
           node-version: "22"
 
       - name: Install deploy tool
-        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.12.1
+        run: npm install -g @polkadot-community-foundation/polkadot-app-deploy@0.16.7
 
       - name: Unpublish ${{ inputs.domain }}
         env:
@@ -43,4 +43,4 @@ jobs:
         run: |
           set -euo pipefail
           [ -n "$MNEMONIC" ] || { echo "::error::secrets.DOTNS_MNEMONIC (the 5Fk8 deployer mnemonic) is not set"; exit 1; }
-          polkadot-app-deploy --unpublish "${{ inputs.domain }}" --env summit --mnemonic "$MNEMONIC"
+          polkadot-app-deploy --unpublish "${{ inputs.domain }}" --env devnet --mnemonic "$MNEMONIC"
